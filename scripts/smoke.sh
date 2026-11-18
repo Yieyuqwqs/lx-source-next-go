@@ -87,7 +87,9 @@ show "内部键隔离 → 404" "$BASE/api/v1/file/_meta/mock/123-320k.url"
 line
 printf '### 热更鉴权：打开 ApiPass，不重启即生效\n'
 cp data/dynamic.toml /tmp/dynamic.bak
-sed -i "s/^Enable = false$/Enable = true/; s/^Value = ''$/Value = 'secret'/" data/dynamic.toml
+# 只改 [Auth.ApiPass] 段内的键，避免误伤其它开关
+sed -i "/^\[Auth.ApiPass\]/,/^\[/ s/^Enable = false$/Enable = true/" data/dynamic.toml
+sed -i "/^\[Auth.ApiPass\]/,/^\[/ s/^Value = ''$/Value = 'secret'/" data/dynamic.toml
 sleep 3
 sed -n '/ApiPass/,+4p' data/dynamic.toml
 show "缺少密钥 → 401" "$BASE/api/v0/url/mock/123/320k"
@@ -97,8 +99,9 @@ cp /tmp/dynamic.bak data/dynamic.toml
 
 line
 printf '### 限流：Single 调到 2，连打 4 次\n'
-sed -i "s/^Enable = false$/Enable = true/" data/dynamic.toml
-sed -i "s/^Single = 15$/Single = 2/" data/dynamic.toml
+# 同样只改 [Auth.RateLimit] 段内的键
+sed -i "/^\[Auth.RateLimit\]/,/^\[/ s/^Enable = false$/Enable = true/" data/dynamic.toml
+sed -i "/^\[Auth.RateLimit\]/,/^\[/ s/^Single = 15$/Single = 2/" data/dynamic.toml
 sleep 3
 for n in 1 2 3 4; do
   printf '第 %s 次 → ' "$n"
