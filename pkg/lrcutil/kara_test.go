@@ -10,10 +10,10 @@ import (
 // encrypt(KRC/QRC) 由参考算法产出二进制，本包的 Decode/Parse 必须原样还原。
 
 const (
-	fxLrcx  = "[00:00.000]<0,36>测<36,36>试<50,60>歌<80,75>词"
-	fxKRC   = "a3JjMTjb6lmXhg7x5M3012cduJ+ENSRQSBPMiGuNUpRs32NlTDNNO1NQGUslejwhut6CVRI0E4UzchgkAiYOEXH6SWxAp29r5w=="
-	fxQRC   = "mCWwrOMCg2jo/Gz61p8BHpsnO8ZGn/K1CSPNhwx1yFNV690Xulw+BGX6RhvmEhWnNRAdgbkmBVvdZJcADjON44RHMVXXIuN/UqXAwQMfcWsg6zKej/D+QPy4sIKqMRcsFZWotb5H2XE6bVhXVUoy9ajA1P3M0qSVJLl0LouPLgd+l/3uwJgxGpEcA9MhUnOGGAfzi1MRqFYzX0jVgiDMKI4Rm+WArtYSwFuR0p6Hbna3SYQ="
-	fxNRC   = "[1000,500](1000,250,0)你(1250,250,0)好"
+	fxLrcx = "[00:00.000]<0,36>测<36,36>试<50,60>歌<80,75>词"
+	fxKRC  = "a3JjMTjb6lmXhg7x5M3012cduJ+ENSRQSBPMiGuNUpRs32NlTDNNO1NQGUslejwhut6CVRI0E4UzchgkAiYOEXH6SWxAp29r5w=="
+	fxQRC  = "mCWwrOMCg2jo/Gz61p8BHpsnO8ZGn/K1CSPNhwx1yFNV690Xulw+BGX6RhvmEhWnNRAdgbkmBVvdZJcADjON44RHMVXXIuN/UqXAwQMfcWsg6zKej/D+QPy4sIKqMRcsFZWotb5H2XE6bVhXVUoy9ajA1P3M0qSVJLl0LouPLgd+l/3uwJgxGpEcA9MhUnOGGAfzi1MRqFYzX0jVgiDMKI4Rm+WArtYSwFuR0p6Hbna3SYQ="
+	fxNRC  = "[1000,500](1000,250,0)你(1250,250,0)好"
 )
 
 func mustBase64(t *testing.T, s string) []byte {
