@@ -1,0 +1,99 @@
+// Command lxsrcs 是组合根：
+// 它是唯一创建具体实现、并把它们互相接起来的地方。
+package main
+
+import (
+	"context"
+	"flag"
+	"fmt"
+	"log/slog"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"syscall"
+	"time"
+
+	"github.com/lxsrcs/lx-source-next/pkg/config"
+	"github.com/lxsrcs/lx-source-next/pkg/logx"
+	"github.com/lxsrcs/lx-source-next/pkg/server"
+)
+
+func main() {
+	if err := run(); err != nil {
+		fmt.Fprintln(os.Stderr, "启动失败:", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
+	confDir := flag.String("conf", "data", "配置目录")
+	flag.Parse()
+
+	bootPath := filepath.Join(*confDir, "bootstrap.toml")
+	dynPath := filepath.Join(*confDir, "dynamic.toml")
+
+	// ---- 1. 启动配置：读一次，之后不可变 ----
+	boot, err := config.LoadBootstrap(bootPath)
+	if err != nil {
+		return err
+	}
+
+	// ---- 2. 日志：标准库 slog + 自定义 Handler 扇出到 SSE ----
+	level := slog.LevelInfo
+	if boot.Debug {
+		level = slog.LevelDebug
+	}
+	var sink slog.Handler = slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})
+	if !boot.Console {
+		sink = slog.NewTextHandler(discard{}, &slog.HandlerOptions{Level: level})
+	}
+	hub := logx.NewHub(512)
+	logger := slog.New(hub.Handler(sink))
+	slog.SetDefault(logger)
+
+	// ---- 3. 动态配置：先给默认值，随后异步加载真实配置 ----
+	holder := config.NewHolder(&config.Snapshot{
+		Dyn:      config.Default(),
+		LoadedAt: time.Now(),
+		Version:  1,
+	})
+	reloader := config.NewReloader(holder, config.FileLoader{Path: dynPath}, logger)
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	// ---- 4. 热重载独立运行，与 HTTP 生命周期解耦 ----
+	interval := 2 * time.Second
+	if d, err := time.ParseDuration(boot.ReloadInterval); err == nil && d > 0 {
+		interval = d
+	}
+	go func() {
+		if err := reloader.Run(ctx, interval); err != nil && ctx.Err() == nil {
+			logger.Error("热重载退出", "err", err)
+		}
+	}()
+
+	// ---- 5. 装配应用：所有依赖显式注入 ----
+	app := server.New(server.Deps{
+		Config:  holder,
+		Logger:  logger,
+		LogHub:  hub,
+		Limiter: nil, // 用内置内存实现；换 Redis 时只改这一行
+		Options: server.Options{
+			TrustProxy:       boot.Proxy,
+			RealIPHeaders:    boot.RealIPHeaders(),
+			EnableRequestLog: true,
+			EnableAccess:     true,
+			EnableApiKey:     true,
+			EnableRateLimit:  true,
+		},
+	})
+
+	// ---- 6. 跑起来 ----
+	return app.Run(ctx, boot.Listen)
+}
+
+// discard 是 io.Writer 的空实现。
+type discard struct{}
+
+func (discard) Write(p []byte) (int, error) { return len(p), nil }

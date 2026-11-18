@@ -1,0 +1,297 @@
+// Package server 把各层依赖装配成一个可运行的 HTTP 应用。
+//
+// 这是整个工程里唯一知道「有哪些中间件、按什么顺序、路由怎么挂」的地方。
+// 中间件包之间互不认识，业务包也不认识它们；
+// 想加一个中间件、去掉一个中间件、调换顺序，只改本文件的 New。
+package server
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"log/slog"
+	"net/http"
+	"time"
+
+	"github.com/lxsrcs/lx-source-next/pkg/apierr"
+	"github.com/lxsrcs/lx-source-next/pkg/config"
+	"github.com/lxsrcs/lx-source-next/pkg/httpx"
+	"github.com/lxsrcs/lx-source-next/pkg/logx"
+	"github.com/lxsrcs/lx-source-next/pkg/middleware"
+	"github.com/lxsrcs/lx-source-next/pkg/middleware/access"
+	"github.com/lxsrcs/lx-source-next/pkg/middleware/apikey"
+	"github.com/lxsrcs/lx-source-next/pkg/middleware/ratelimit"
+	"github.com/lxsrcs/lx-source-next/pkg/middleware/recoverer"
+	"github.com/lxsrcs/lx-source-next/pkg/middleware/reqlog"
+)
+
+// Deps 是装配所需的全部依赖。没有全局变量，一切显式传入。
+type Deps struct {
+	// Config 提供原子快照，是唯一的配置来源。
+	Config *config.Holder
+	// Logger 由组合根注入；中间件只认 *slog.Logger。
+	Logger *slog.Logger
+	// LogHub 为 SSE 日志流提供订阅。可为 nil。
+	LogHub *logx.Hub
+	// Limiter 可替换为 Redis 等实现。为 nil 时用内置内存实现。
+	Limiter ratelimit.Limiter
+	// Options 决定装哪些中间件。
+	Options Options
+}
+
+// Options 控制中间件的装配。
+type Options struct {
+	// TrustProxy 决定是否信任转发头。
+	TrustProxy bool
+	// RealIPHeaders 自定义转发头，空时用默认。
+	RealIPHeaders []string
+	// EnableRequestLog 访问日志。
+	EnableRequestLog bool
+	// EnableAccess IP 黑白名单。
+	EnableAccess bool
+	// EnableApiKey 接口密钥。
+	EnableApiKey bool
+	// EnableRateLimit 限流。
+	EnableRateLimit bool
+}
+
+// DefaultOptions 默认全开（生产形态）。
+func DefaultOptions() Options {
+	return Options{
+		EnableRequestLog: true,
+		EnableAccess:     true,
+		EnableApiKey:     true,
+		EnableRateLimit:  true,
+	}
+}
+
+// App 是装配完成的应用。
+type App struct {
+	deps      Deps
+	handler   http.Handler
+	startedAt time.Time
+}
+
+// New 装配应用。
+func New(d Deps) *App {
+	if d.Logger == nil {
+		d.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	}
+	a := &App{deps: d, startedAt: time.Now()}
+	a.handler = a.chain().Then(a.routes())
+	return a
+}
+
+// Handler 返回可挂到任意 http.Server 上的 handler，便于测试与嵌入。
+func (a *App) Handler() http.Handler { return a.handler }
+
+// dynamic 取当前配置快照。
+func (a *App) dynamic() *config.Dynamic {
+	if s := a.deps.Config.Current(); s != nil && s.Dyn != nil {
+		return s.Dyn
+	}
+	return config.Default()
+}
+
+// chain 组装中间件链。顺序即语义：
+//
+//	客户端地址 → 访问日志 → panic 兜底 → 黑白名单 → 密钥 → 限流 → 路由
+//
+// 前两个是观测，后面的才是策略；策略失败直接短路，不进入业务。
+func (a *App) chain() middleware.Chain {
+	opt := a.deps.Options
+	logger := a.deps.Logger
+
+	var c middleware.Chain
+
+	// 解析客户端地址必须最靠前：后续策略都依赖它。
+	c = c.Append(clientAddr(opt))
+
+	if opt.EnableRequestLog {
+		c = c.Append(reqlog.New(logger))
+	}
+	c = c.Append(recoverer.New(logger))
+
+	if opt.EnableAccess {
+		c = c.Append(access.New(func() access.Config {
+			b := a.dynamic().Auth.BanList
+			return access.Config{Enabled: b.Enable, Strict: b.Strict, White: b.White, Black: b.Black}
+		}, logger))
+	}
+
+	if opt.EnableApiKey {
+		c = c.Append(apikey.New(func() apikey.Rules {
+			p := a.dynamic().Auth.ApiPass
+			return apikey.Rules{Enabled: p.Enable, Key: p.Value}
+		}, logger))
+	}
+
+	if opt.EnableRateLimit {
+		c = c.Append(ratelimit.New(ratelimit.Options{
+			Rules: func() ratelimit.Rules {
+				r := a.dynamic().Auth.RateLimit
+				window := time.Second
+				if r.Block > 0 {
+					window = time.Duration(r.Block) * time.Second
+				}
+				return ratelimit.Rules{
+					Enabled: r.Enable,
+					Global:  r.Globle,
+					Single:  r.Single,
+					Window:  window,
+				}
+			},
+			Limiter: a.deps.Limiter,
+			// 白名单来源跳过限流
+			Skip:   func(r *http.Request) bool { return httpx.Trusted(r.Context()) },
+			Logger: logger,
+		}))
+	}
+	return c
+}
+
+// clientAddr 注入客户端地址解析。
+func clientAddr(opt Options) middleware.Middleware {
+	resolver := httpx.IPResolver{TrustProxy: opt.TrustProxy, Headers: opt.RealIPHeaders}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			addr := resolver.Resolve(r)
+			next.ServeHTTP(w, r.WithContext(httpx.WithClientAddr(r.Context(), addr)))
+		})
+	}
+}
+
+// routes 注册路由。Go 1.22 的 ServeMux 支持方法与通配符，无需框架。
+func (a *App) routes() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v0/ping", a.handlePing)
+	mux.HandleFunc("GET /api/v1/status", a.handleStatus)
+	mux.HandleFunc("GET /api/v1/test/sse", a.handleSSE)
+	return mux
+}
+
+func (a *App) handlePing(w http.ResponseWriter, r *http.Request) {
+	httpx.OK(w, "pong")
+}
+
+func (a *App) handleStatus(w http.ResponseWriter, r *http.Request) {
+	snap := a.deps.Config.Current()
+	body := map[string]any{
+		"uptime":        time.Since(a.startedAt).Round(time.Second).String(),
+		"configVersion": snap.Version,
+		"configLoaded":  snap.LoadedAt.Format(time.RFC3339),
+	}
+	if a.deps.LogHub != nil {
+		body["logSubscribers"] = a.deps.LogHub.Subscribers()
+	}
+	httpx.OK(w, body)
+}
+
+// logEvent 是 SSE 推送的事件体。刻意不用 slog.Attr 直出，
+// 而是转成稳定的 map，避免内部类型影响对外协议。
+type logEvent struct {
+	Time  string            `json:"time"`
+	Level string            `json:"level"`
+	Group string            `json:"group,omitempty"`
+	Msg   string            `json:"msg"`
+	Attrs map[string]string `json:"attrs,omitempty"`
+}
+
+func (a *App) handleSSE(w http.ResponseWriter, r *http.Request) {
+	if a.deps.LogHub == nil {
+		httpx.Fail(w, apierr.New(apierr.CodeUnavailable, "日志推送未启用"))
+		return
+	}
+	if !a.dynamic().Apis.WebLog {
+		httpx.Fail(w, apierr.New(apierr.CodeForbidden, "未开启网页日志"))
+		return
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		httpx.Fail(w, apierr.New(apierr.CodeInternal, "当前连接不支持流式推送"))
+		return
+	}
+
+	h := w.Header()
+	h.Set("Content-Type", "text/event-stream; charset=utf-8")
+	h.Set("Cache-Control", "no-cache")
+	h.Set("Connection", "keep-alive")
+	h.Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+
+	ch, cancel := a.deps.LogHub.Subscribe(128)
+	defer cancel()
+
+	// 先回放缓冲，客户端一接上就能看到最近的日志
+	for _, rec := range a.deps.LogHub.Records() {
+		writeEvent(w, rec)
+	}
+	flusher.Flush()
+
+	ping := time.NewTicker(20 * time.Second)
+	defer ping.Stop()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case rec, open := <-ch:
+			if !open {
+				return
+			}
+			writeEvent(w, rec)
+			flusher.Flush()
+		case <-ping.C:
+			_, _ = io.WriteString(w, ": ping\n\n")
+			flusher.Flush()
+		}
+	}
+}
+
+func writeEvent(w io.Writer, rec logx.Record) {
+	ev := logEvent{
+		Time:  rec.Time.Format(time.RFC3339),
+		Level: rec.Level.String(),
+		Group: rec.Group,
+		Msg:   rec.Msg,
+	}
+	if len(rec.Attrs) > 0 {
+		ev.Attrs = make(map[string]string, len(rec.Attrs))
+		for _, at := range rec.Attrs {
+			ev.Attrs[at.Key] = at.Value.String()
+		}
+	}
+	b, err := json.Marshal(ev)
+	if err != nil {
+		return
+	}
+	_, _ = io.WriteString(w, "event: log\ndata: ")
+	_, _ = w.Write(b)
+	_, _ = io.WriteString(w, "\n\n")
+}
+
+// Run 启动服务并在 ctx 结束时优雅关闭。
+func (a *App) Run(ctx context.Context, addr string) error {
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           a.handler,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	errCh := make(chan error, 1)
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errCh <- err
+		}
+	}()
+	a.deps.Logger.Info("服务已启动", "addr", addr)
+
+	select {
+	case err := <-errCh:
+		return err
+	case <-ctx.Done():
+		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		a.deps.Logger.Info("正在关闭服务")
+		return srv.Shutdown(shutCtx)
+	}
+}

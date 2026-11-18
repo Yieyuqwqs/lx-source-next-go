@@ -1,0 +1,42 @@
+# 业务配置：可热更，保存后自动生效，不影响缓存。
+
+[Auth.BanList]
+Enable = false
+Strict = false
+White = ['127.0.0.1', '::1']
+Black = []
+
+[Auth.RateLimit]
+Enable = false
+Block = 30
+Globle = 60
+Single = 15
+
+[Auth.ApiPass]
+Enable = false
+Auto = false
+Value = ''
+
+[Apis]
+WebLog = false
+ApiOnly = false
+
+[Srcs.Wy]
+Enable = true
+
+[Srcs.Mg]
+Enable = true
+
+[Srcs.Kw]
+Enable = true
+
+[Srcs.Kg]
+Enable = true
+
+[Data]
+Mode = 1
+Type = 0
+
+[Errs]
+Expi = 120
+ErrMp3 = ''

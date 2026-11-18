@@ -1,57 +1,56 @@
 # lx-source-next
 
-LX Music 自定义源后端，重构版本。
+LX Music 自定义源后端，重构版本。架构说明见 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
-## 模块状态
+## 模块
 
-| 包 | 职责 | 状态 |
-|---|---|---|
-| `pkg/lrcutil` | LRC / LRCX / KRC / QRC / NRC 五种歌词格式，纯函数 | ✅ 跨实现验证 |
-| `pkg/apierr` | 统一错误码 → HTTP 状态映射 | ✅ |
-| `pkg/quality` | 音质别名归一化 + 回落链 | ✅ |
-| `pkg/balancer` | 账号池熔断（closed/open/half-open） | ✅ |
-| `pkg/ipguard` | `netip.Prefix` 黑白名单 | ✅ |
-| `pkg/logx` | `slog` Handler → SSE 扇出 + 凭据脱敏 | ✅ |
-| 各平台上游协议层 | 对接 WY/KG/KW/MG | ❌ 未开始 |
+| 包 | 职责 |
+|---|---|
+| `cmd/lxsrcs` | 组合根：唯一创建具体实现并接线的地方 |
+| `pkg/server` | 装配中间件链与路由，唯一知道装配顺序的地方 |
+| `pkg/config` | bootstrap/dynamic 分层、原子快照、幂等热重载 |
+| `pkg/middleware` | 标准 `func(http.Handler) http.Handler` 组合原语 |
+| `pkg/middleware/access` | IP 黑白名单（可插拔） |
+| `pkg/middleware/apikey` | 接口密钥（可插拔） |
+| `pkg/middleware/ratelimit` | 限流，`Limiter` 接口可换 Redis（可插拔） |
+| `pkg/middleware/recoverer` | panic → 500 |
+| `pkg/middleware/reqlog` | 访问日志 |
+| `pkg/httpx` | 响应信封、错误落盘、客户端 IP |
+| `pkg/apierr` | 错误码唯一真源 |
+| `pkg/ipguard` | `netip.Prefix` 黑白名单 |
+| `pkg/quality` | 音质别名归一化 + 回落链 |
+| `pkg/balancer` | 账号池熔断 |
+| `pkg/logx` | `slog` Handler → SSE 扇出 + 凭据脱敏 |
+| `pkg/lrcutil` | LRC / LRCX / KRC / QRC / NRC 五格式 |
 
-## 设计原则
+## 运行
 
-1. **纯函数优先**：`pkg/*` 全部无状态、无网络 IO、无全局变量、可并发调用。
-2. **只依赖标准库**：DES、zlib、XML、netip、slog 全用 stdlib，没有一个第三方依赖。
-3. **单一真源**：错误码只在一处定义；音质别名与回落顺序只有一张表；IP 规则只用标准库。
-4. **时间统一毫秒 `int64`**；逐字歌词的词时间统一归一化为**相对行首**。
-5. **不猜**：格式有歧义时不自动应用（如 LRC 的 `[offset:]`），交给调用方。
+```sh
+go build ./...
+go run ./cmd/lxsrcs -conf data
+curl 'http://127.0.0.1:1101/api/v0/ping'
+```
 
-## 歌词格式
+配置分两份：
 
-| 格式 | 容器/加密 | 明文形状 |
-|---|---|---|
-| LRC | 无 | `[分:秒.百分秒]文本` |
-| LRCX | 无 | `[分:秒.毫秒]<相对起,时长>文字` |
-| KRC | `krc1` + 16 字节循环 XOR + zlib | `[行起,行时]<相对词起,词时,0>文字` |
-| QRC | 可选 `0x98 0x25` 转旧版 → 跳 11 字节 → DES 解/加/解（ECB，密钥前 8 字节）→ zlib | XML，`LyricContent` 内 `[行起,行时]文字(绝对词起,词时)` |
-| NRC | 无 | `[行起,行时](绝对词起,词时[,0])文字` |
-
-## 错误码
-
-| 码 | HTTP | 含义 |
-|---|---|---|
-| 0 | 200 | 成功 |
-| 1 | 403 | 无权限 |
-| 2 | 503 | 服务不可用（可回错误音频占位） |
-| 3 | 401 | 密钥缺失或错误 |
-| 4 | 500 | 内部错误 |
-| 5 | 429 | 触发限流 |
-| 6 | 400 | 参数错误 |
+- `data/bootstrap.toml`：监听地址、日志、代理等，改了要重启；
+- `data/dynamic.toml`：鉴权、源、缓存规则等，保存后 2 秒内自动生效，**不影响缓存**。
 
 ## 验证
 
 ```sh
 gofmt -l .
+go mod verify
 go vet ./...
+go build ./...
 go test ./... -race
 go test ./pkg/lrcutil -run '^$' -fuzz '^FuzzParseLrcx$' -fuzztime 30s
 ```
 
-歌词测试里的 KRC / QRC 二进制 fixture 由**参考实现的常量生成**，
-再交给本包解密还原，属跨实现校验。QRC 的 256 字节混淆表由脚本逐字节导出，未手抄。
+歌词的 KRC/QRC 二进制 fixture 由参考实现的常量生成，属跨实现校验。
+
+## 尚未实现
+
+- 各平台上游协议层
+- 缓存驱动
+- 前端静态资源挂载

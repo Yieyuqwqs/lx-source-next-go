@@ -1,0 +1,11 @@
+# 启动配置：进程级参数，改了要重启。
+Listen = ':1101'
+LogDir = 'data/log'
+Console = true
+Debug = false
+# 前置代理：为 true 时信任转发头里的真实 IP
+Proxy = false
+RealIP = ''
+Cors = false
+# 动态配置轮询间隔
+ReloadInterval = '2s'

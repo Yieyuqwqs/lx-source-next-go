@@ -13,7 +13,10 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.21.x'
+          go-version: '1.22.x'
+
+      - name: 校验 go.sum 与 go.mod 一致
+        run: go mod verify
 
       - name: gofmt
         run: |
@@ -27,9 +30,12 @@ jobs:
       - name: go vet
         run: go vet ./...
 
+      - name: go build
+        run: go build ./...
+
       - name: go test
         run: go test ./... -race -covermode=atomic -coverprofile=coverage.out
 
       - name: 模糊测试冒烟（20 秒）
-        run: go test ./pkg/lrcutil -run '^$' -fuzz '^FuzzParse$' -fuzztime 20s
+        run: go test ./pkg/lrcutil -run '^$' -fuzz '^FuzzParseLrcx$' -fuzztime 20s
         continue-on-error: true
