@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"net/url"
 	"strconv"
 	"strings"
@@ -186,7 +187,8 @@ func str(m map[string]any, key string) string {
 		return ""
 	}
 	s, _ := v.(string)
-	return strings.TrimSpace(s)
+	// 上游会把歌名里的空格等编码成实体，这里统一反转义
+	return strings.TrimSpace(html.UnescapeString(s))
 }
 
 func firstStr(m map[string]any, keys ...string) string {

@@ -363,3 +363,34 @@ flac24bit → .../nf/resource/n1/69/32/588957081.mp3
    否则同一份文件会被存成四份、并产生四次上游调用。
 
 取舍说明：宁可低报音质，也不高报。想要真实音质需要启用 `mobi` 策略 + 密钥。
+
+
+## 12. 酷我匿名能力矩阵（实测）
+
+用 `scripts/probe-kw.sh` 在 GitHub runner 上实测，共四轮：
+
+| 能力 | 入口 | 结果 |
+|---|---|---|
+| 取播放直链 | `antiserver.kuwo.cn/anti.s` | ✅ 可用，**免密钥** |
+| 搜索 | `search.kuwo.cn/r.s` | ✅ 可用，返回真实 ID/歌名/歌手/时长/格式 |
+| 歌词 | `m.kuwo.cn/newh5/singles/songinfoandlrc` | ❌ `音乐查询失败`，加 UA/Referer 无效 |
+| 歌词（老接口） | `newlyric.kuwo.cn/newlyric.lrc` | ❌ `TP=ERROR REQUEST`，接口已废 |
+| 网页版 API | `www.kuwo.cn/api/www/...` | ❌ `The request is illegal!`（需 csrf/cookie） |
+| mobi 免密钥伪装 | `mobi.kuwo.cn/mobi.s?f=web` | ❌ 403 |
+| `format=flac` | anti.s | ❌ `refuse request!` |
+| MV | anti.s `format=mp4` | ❌ `res not found` |
+| 封面 | `artistpicserver` | ❌ 403 |
+
+**结论：酷我的匿名天花板 = 搜索 + mp3 取链。**
+歌词、封面、MV、音乐详情都需要凭据，启用 `mobi` 策略 + DES 密钥才可能突破。
+
+### 两个只有真实数据才能发现的 bug
+
+1. **`abslist` 定位错误**：真实响应是 `'abslist':[{`（键带引号），
+   而我的实现按 `abslist:[` 匹配，导致 `total` 对、`items` 恒为 null。
+   我自己的 fixture 也写成了错误形状，所以单元测试没抓到。
+   → 修法：先定位 `abslist` 关键字，再取其后第一个 `[`。
+2. **歌名带 HTML 实体**：返回的是 `花海&nbsp;(DJ&nbsp;阿若版)`，
+   需要 `html.UnescapeString`。
+
+这两个都是"Mock 测试全绿、真实数据立刻翻车"的典型，印证了探测优先于猜测。

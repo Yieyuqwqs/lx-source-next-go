@@ -103,3 +103,20 @@ func containsStr(s, sub string) bool {
 		return false
 	})()
 }
+
+func TestParseSearchUnescapesEntities(t *testing.T) {
+	body := "{'TOTAL':'1','abslist':[{'DC_TARGETID':'1','SONGNAME':'\u82b1\u6d77&nbsp;(DJ\u7248)','ARTIST':'A&amp;B'}]}"
+	res, err := ParseSearch([]byte(body))
+	if err != nil {
+		t.Fatalf("ParseSearch: %v", err)
+	}
+	if len(res.Items) != 1 {
+		t.Fatalf("Items = %d", len(res.Items))
+	}
+	if got := res.Items[0].Name; got != "\u82b1\u6d77 (DJ\u7248)" {
+		t.Errorf("Name = %q，&nbsp; 应被反转义", got)
+	}
+	if got := res.Items[0].Ar[0].Name; got != "A&B" {
+		t.Errorf("Artist = %q，&amp; 应被反转义", got)
+	}
+}

@@ -17,7 +17,3 @@ jobs:
 
       - name: 端到端冒烟
         run: bash scripts/smoke.sh
-
-      - name: 探测酷我公开接口（诊断用，失败不阻塞）
-        run: bash scripts/probe-kw.sh
-        continue-on-error: true
