@@ -166,3 +166,49 @@ pkg/lrcutil/           歌词五格式
 - 各平台上游协议层（唯一无法靠"研究+实现+自测"闭环的部分，必须真账号联调）
 - 缓存驱动（`Data.Mode` 已进配置，驱动层未实现）
 - 前端资源挂载（`Apis.ApiOnly` 已进配置，静态文件服务未接）
+
+## 8. 缓存层（Data.Mode）
+
+```
+调用方 ──► cache.Reader ──► Cache 接口 ──► 驱动（File / Memory / Redis）
+                │
+                ├─ Policy：能不能缓存 + TTL（来自热更配置）
+                └─ Group：同键并发合并，只打一次上游
+```
+
+三个关注点互相独立：
+
+| 角色 | 只负责 | 不知道 |
+|---|---|---|
+| `Cache` | Get/Set/Del 与 TTL 落存 | 缓存什么、多久 |
+| `policy.Dynamic` | 判定是否可缓存、给 TTL | 存在哪 |
+| `Reader` | 读穿 + 合并 + 统计 | 存储细节、规则来源 |
+
+**为什么换存储只改一行**：`Reader` 只依赖 `Cache` 接口，
+`policy` 只依赖 `cache.Meta`，两者都不认识具体驱动。
+
+### 热重载边界（本层最重要的一条）
+
+```
+配置变化 ──► policy 重新编译 ──► 之后写入用新 TTL / 新规则
+                              ✗ 不清空缓存
+                              ✗ 不改动已有条目
+                              ✗ 不重新加载已有数据
+```
+
+这不是靠"记得别清理"来保证的：`cache.Reader` 与 `policy.Dynamic` **都没有删除或重建缓存的代码路径**。
+`pkg/cache/reload_test.go` 里的 `TestConfigReloadKeepsCachedData` 把这条边界钉住了：
+热更后同一个键仍然命中、上游调用次数不增加、旧条目按旧 TTL 继续存活，而新写入立刻用新 TTL。
+
+### 防击穿
+
+`cache.Group` 合并同键的并发未命中。与 `x/sync/singleflight` 的差别是：
+加载上下文与首个调用方的取消脱钩（`context.WithoutCancel` + 兜底超时），
+因此某个客户端断开既不会连累其它等待者，也不影响结果写回缓存。
+
+### 目录归属
+
+| 配置 | 归属 | 理由 |
+|---|---|---|
+| `Main.CacheDir`（`Bootstrap.CacheDir`） | 启动期 | 数据落在哪属部署形态 |
+| `Data.Mode` / `Data.TTL` / `Data.Rule` | 热更期 | 缓存什么、多久属运营策略 |

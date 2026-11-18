@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/lxsrcs/lx-source-next/pkg/apierr"
+	"github.com/lxsrcs/lx-source-next/pkg/cache"
 	"github.com/lxsrcs/lx-source-next/pkg/config"
 	"github.com/lxsrcs/lx-source-next/pkg/httpx"
 	"github.com/lxsrcs/lx-source-next/pkg/logx"
@@ -36,6 +37,8 @@ type Deps struct {
 	LogHub *logx.Hub
 	// Limiter 可替换为 Redis 等实现。为 nil 时用内置内存实现。
 	Limiter ratelimit.Limiter
+	// Cache 是读穿缓存。为 nil 时不提供缓存观测。
+	Cache *cache.Reader
 	// Options 决定装哪些中间件。
 	Options Options
 }
@@ -184,6 +187,17 @@ func (a *App) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	if a.deps.LogHub != nil {
 		body["logSubscribers"] = a.deps.LogHub.Subscribers()
+	}
+	if a.deps.Cache != nil {
+		st := a.deps.Cache.Stats()
+		body["cache"] = map[string]any{
+			"hits":     st.Hits,
+			"misses":   st.Misses,
+			"loads":    st.Loads,
+			"errors":   st.Errors,
+			"hitRate":  st.HitRate(),
+			"inFlight": a.deps.Cache.InFlight(),
+		}
 	}
 	httpx.OK(w, body)
 }

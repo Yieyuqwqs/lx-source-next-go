@@ -92,6 +92,27 @@ type Data struct {
 	Mode int `toml:"Mode"`
 	// Type 缓存类型：0 本地。
 	Type int `toml:"Type"`
+	// TTL 缓存有效期（秒）；<=0 时用策略层默认值。
+	TTL int `toml:"TTL"`
+	// Rule 缓存规则。
+	Rule CacheRule `toml:"Rule"`
+}
+
+// CacheRule 决定哪些平台与音质进入缓存。
+//
+// 列表语义：启用排除项时列表表示「不缓存的集合」，否则表示「缓存的集合」；
+// 列表为空表示不限制。
+type CacheRule struct {
+	// ExcP 平台列表是否为排除语义。
+	ExcP bool `toml:"ExcP"`
+	// Plat 平台二字码列表。
+	Plat []string `toml:"Plat"`
+	// ExcQ 音质列表是否为排除语义。
+	ExcQ bool `toml:"ExcQ"`
+	// Qual 音质列表。
+	Qual []string `toml:"Qual"`
+	// AllowSpecial 是否缓存特殊音质（temp 试听 / orig 原声）。
+	AllowSpecial bool `toml:"AllowSpecial"`
 }
 
 // Errs 是错误兜底配置。

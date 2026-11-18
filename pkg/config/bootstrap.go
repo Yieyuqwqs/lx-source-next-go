@@ -27,6 +27,8 @@ type Bootstrap struct {
 	Cors bool `toml:"Cors"`
 	// ReloadInterval 动态配置轮询间隔，如 "2s"。
 	ReloadInterval string `toml:"ReloadInterval"`
+	// CacheDir 缓存目录。属于部署形态，不参与热更。
+	CacheDir string `toml:"CacheDir"`
 }
 
 // DefaultBootstrap 返回默认启动配置。
@@ -36,6 +38,7 @@ func DefaultBootstrap() Bootstrap {
 		LogDir:         "data/log",
 		Console:        true,
 		ReloadInterval: "2s",
+		CacheDir:       "data/cache",
 	}
 }
 

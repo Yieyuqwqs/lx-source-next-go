@@ -13,6 +13,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/lxsrcs/lx-source-next/pkg/cache"
+	cachepolicy "github.com/lxsrcs/lx-source-next/pkg/cache/policy"
 	"github.com/lxsrcs/lx-source-next/pkg/config"
 	"github.com/lxsrcs/lx-source-next/pkg/logx"
 	"github.com/lxsrcs/lx-source-next/pkg/server"
@@ -73,12 +75,33 @@ func run() error {
 		}
 	}()
 
-	// ---- 5. 装配应用：所有依赖显式注入 ----
+	// ---- 5. 缓存：路径属启动期，规则与 TTL 属热更期 ----
+	fileCache, err := cache.NewFile(boot.CacheDir)
+	if err != nil {
+		return err
+	}
+	cachePolicy := cachepolicy.NewDynamic(func() cachepolicy.Config {
+		d := holder.Dynamic()
+		return cachepolicy.Config{
+			Mode:         d.Data.Mode,
+			TTL:          time.Duration(d.Data.TTL) * time.Second,
+			Plats:        d.Data.Rule.Plat,
+			ExcludePlat:  d.Data.Rule.ExcP,
+			Quals:        d.Data.Rule.Qual,
+			ExcludeQual:  d.Data.Rule.ExcQ,
+			AllowSpecial: d.Data.Rule.AllowSpecial,
+		}
+	})
+	cacheReader := cache.NewReader(fileCache, cachePolicy, cache.ReaderOptions{Logger: logger})
+	logger.Info("缓存已就绪", "dir", fileCache.Root())
+
+	// ---- 6. 装配应用：所有依赖显式注入 ----
 	app := server.New(server.Deps{
 		Config:  holder,
 		Logger:  logger,
 		LogHub:  hub,
 		Limiter: nil, // 用内置内存实现；换 Redis 时只改这一行
+		Cache:   cacheReader,
 		Options: server.Options{
 			TrustProxy:       boot.Proxy,
 			RealIPHeaders:    boot.RealIPHeaders(),
@@ -89,7 +112,7 @@ func run() error {
 		},
 	})
 
-	// ---- 6. 跑起来 ----
+	// ---- 7. 跑起来 ----
 	return app.Run(ctx, boot.Listen)
 }
 

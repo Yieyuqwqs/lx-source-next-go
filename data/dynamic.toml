@@ -1,4 +1,5 @@
-# 业务配置：可热更，保存后自动生效，不影响缓存。
+# 业务配置：可热更，保存后自动生效。
+# 重要：热更只会改变「后续写入的规则与 TTL」，不会清空任何已有缓存。
 
 [Auth.BanList]
 Enable = false
@@ -34,8 +35,23 @@ Enable = true
 Enable = true
 
 [Data]
+# 0=禁用 1=安全模式 2=极速模式
 Mode = 1
+# 0=本地
 Type = 0
+# 缓存有效期（秒）；0 表示用默认值 1 小时
+TTL = 3600
+
+# 缓存规则：列表为空表示不限制
+[Data.Rule]
+# 平台列表是否为排除语义
+ExcP = false
+Plat = ['wy', 'mg', 'kw', 'kg']
+# 音质列表是否为排除语义
+ExcQ = false
+Qual = ['128k', '192k', '320k', 'flac', 'flac24bit']
+# 是否缓存特殊音质（temp 试听 / orig 原声）
+AllowSpecial = false
 
 [Errs]
 Expi = 120

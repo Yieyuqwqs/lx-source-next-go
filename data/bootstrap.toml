@@ -9,3 +9,5 @@ RealIP = ''
 Cors = false
 # 动态配置轮询间隔
 ReloadInterval = '2s'
+# 缓存目录（部署形态，不参与热更）
+CacheDir = 'data/cache'
