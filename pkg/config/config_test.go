@@ -171,7 +171,9 @@ func TestReloaderOnce(t *testing.T) {
 	}
 
 	// 修改内容 → 发布新版本
-	payload.Store([]byte(sampleTOML + "\n[Errs]\nExpi = 300\n"))
+	// 注意：不能重复声明已有的 TOML 表（[Errs] 已存在会解析失败），
+	// 所以要追加一个原本不存在的表。
+	payload.Store([]byte(sampleTOML + "\n[Srcs.Mg]\nEnable = true\n"))
 	out, err = r.Once()
 	if err != nil {
 		t.Fatalf("第三次重载: %v", err)
@@ -179,8 +181,8 @@ func TestReloaderOnce(t *testing.T) {
 	if !out.Changed || h.Version() != v1+1 {
 		t.Errorf("内容变化应当发布，实际 %+v version=%d", out, h.Version())
 	}
-	if h.Dynamic().Errs.Expi != 300 {
-		t.Errorf("新配置未生效: Expi = %d", h.Dynamic().Errs.Expi)
+	if !h.Dynamic().Srcs.Mg.Enable {
+		t.Error("新配置未生效：Srcs.Mg.Enable 应为 true")
 	}
 }
 
