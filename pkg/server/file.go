@@ -46,14 +46,17 @@ var contentTypes = map[string]string{
 	".txt":  "text/plain; charset=utf-8",
 }
 
-// buildFileKey 由三段路径拼出缓存键，并逐段校验。
+// buildFileKey 由 {source}/{musicid}/{name} 三段拼出缓存键，并逐段校验。
+//
+// 强制三段：这个函数只服务于该路由的形状，
+// 少一段或多一段都属于异常输入，直接拒绝，不要拼出畸形键。
 //
 // 这里是路径穿越的第一道闸：即使 ServeMux 已经把路径规范化，
 // 编码过的 %2e%2e、%00、反斜杠等仍会原样落到 PathValue 里，
 // 所以必须自己再验一遍字符集。第二道闸在缓存驱动内部（cache.File.rel）。
 func buildFileKey(parts ...string) (string, error) {
-	if len(parts) == 0 {
-		return "", errBadPath
+	if len(parts) != 3 {
+		return "", fmt.Errorf("%w: 需要 3 段，实际 %d 段", errBadPath, len(parts))
 	}
 	for _, p := range parts {
 		if !validSegment(p) {
