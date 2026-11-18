@@ -128,6 +128,12 @@ for q in 128k 320k flac flac24bit; do
 done
 
 line
+printf '### 服务搜索（真实网络，匿名可用）\n'
+show "搜索 周杰伦" "$BASE/api/v1/search?pt=kw&q=%E5%91%A8%E6%9D%B0%E4%BC%A6&sz=3"
+show "搜索缺少关键词 → 400" "$BASE/api/v1/search?pt=kw"
+show "搜索不支持的来源 → 503" "$BASE/api/v1/search?pt=mock&q=x"
+
+line
 printf '### 服务端日志尾部\n'
 tail -25 /tmp/lxsrcs.log
 

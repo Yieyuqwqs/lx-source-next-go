@@ -73,6 +73,8 @@ type Config struct {
 	PathConvert string
 	// PathLyric 歌词路径，默认 /mobi.s。
 	PathLyric string
+	// SearchHost 搜索接口地址，与取链不同域；留空用内置默认值。
+	SearchHost string
 	// UserAgent 请求头。
 	UserAgent string
 	// AntiQuality 是 anti 策略下上报的音质。
@@ -328,9 +330,13 @@ func (c *Client) Pic(context.Context, string, string) (string, error) {
 	return "", apierr.Wrap(apierr.CodeUnavailable, "kw", errNotImplemented)
 }
 
-// get 是唯一发起 HTTP 请求的地方。
+// get 在 BaseURL 上发请求。
 func (c *Client) get(ctx context.Context, path string, params url.Values) ([]byte, error) {
-	u := buildURL(c.cfg.BaseURL, path, params)
+	return c.getURL(ctx, buildURL(c.cfg.BaseURL, path, params))
+}
+
+// getURL 是唯一发起 HTTP 请求的地方。
+func (c *Client) getURL(ctx context.Context, u string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, apierr.Wrap(apierr.CodeInternal, "kw: 构造请求失败", err)
@@ -413,3 +419,25 @@ func (c *Client) NormalizeQuality(req string) string {
 	}
 	return req
 }
+
+// Search 实现 source.Searcher：走与取链不同域的公开搜索接口。
+//
+// 该能力不需要任何密钥，也不依赖取链策略，因此不走 ready() 检查。
+func (c *Client) Search(ctx context.Context, keyword string, page, size int) (source.SearchResult, error) {
+	keyword = strings.TrimSpace(keyword)
+	if keyword == "" {
+		return source.SearchResult{}, apierr.New(apierr.CodeBadRequest, "缺少搜索关键词")
+	}
+	body, err := c.getURL(ctx, c.searchURL(keyword, page, size))
+	if err != nil {
+		return source.SearchResult{}, err
+	}
+	res, err := ParseSearch(body)
+	if err != nil {
+		return source.SearchResult{}, apierr.Wrap(apierr.CodeUnavailable, "kw: 解析搜索结果失败", err)
+	}
+	return res, nil
+}
+
+// 编译期断言：必须实现搜索能力。
+var _ source.Searcher = (*Client)(nil)

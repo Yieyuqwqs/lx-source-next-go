@@ -175,6 +175,7 @@ func (a *App) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v0/ping", a.handlePing)
 	mux.HandleFunc("GET /api/v1/status", a.handleStatus)
+	mux.HandleFunc("GET /api/v1/search", a.handleSearch)
 	mux.HandleFunc("GET /api/v1/test/sse", a.handleSSE)
 	// 缓存文件下载：{source}/{musicid}/{quality}.{ext}
 	mux.HandleFunc("GET /api/v1/file/{source}/{musicid}/{name}", a.handleFile)

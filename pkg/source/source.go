@@ -102,6 +102,22 @@ type QualityNormalizer interface {
 	NormalizeQuality(req string) string
 }
 
+// SearchResult 是一次搜索的结果。
+type SearchResult struct {
+	// Total 是命中总数。
+	Total int
+	// Items 是当前页。
+	Items []MusicInfo
+}
+
+// Searcher 是可选能力：服务端搜索。
+//
+// LX 自定义源协议本身不需要搜索（客户端自己搜），
+// 这是给网页端与调试用的扩展能力。不实现的来源按不支持处理。
+type Searcher interface {
+	Search(ctx context.Context, keyword string, page, size int) (SearchResult, error)
+}
+
 // Registry 是来源注册表。用 map 而非全局变量，便于测试与多实例。
 type Registry map[string]Source
 
