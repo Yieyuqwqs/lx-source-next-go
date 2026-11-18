@@ -107,7 +107,11 @@ for n in 1 2 3 4; do
   printf '第 %s 次 → ' "$n"
   curl -sS -o /dev/null -w 'HTTP %{http_code}\n' "$BASE/api/v0/url/mock/rate/320k"
 done
+# 恢复配置并等热更生效，否则后续用例会被限流器挡住
 cp /tmp/dynamic.bak data/dynamic.toml
+sleep 3
+sed -n '/Auth.RateLimit/,+4p' data/dynamic.toml
+curl -sS "$BASE/api/v0/ping" >/dev/null
 
 line
 printf '### 酷我来源（anti 策略：免密钥，真实网络）\n'
