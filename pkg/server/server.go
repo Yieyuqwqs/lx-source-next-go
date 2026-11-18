@@ -25,6 +25,7 @@ import (
 	"github.com/lxsrcs/lx-source-next/pkg/middleware/ratelimit"
 	"github.com/lxsrcs/lx-source-next/pkg/middleware/recoverer"
 	"github.com/lxsrcs/lx-source-next/pkg/middleware/reqlog"
+	"github.com/lxsrcs/lx-source-next/pkg/source"
 )
 
 // Deps 是装配所需的全部依赖。没有全局变量，一切显式传入。
@@ -41,6 +42,8 @@ type Deps struct {
 	Cache *cache.Reader
 	// Files 是缓存文件路径解析能力。为 nil 时文件路由返回 503。
 	Files FileStore
+	// Sources 是已注册的解析源。为空时 v0 接口返回 503。
+	Sources source.Registry
 	// Options 决定装哪些中间件。
 	Options Options
 }
@@ -175,6 +178,11 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("GET /api/v1/test/sse", a.handleSSE)
 	// 缓存文件下载：{source}/{musicid}/{quality}.{ext}
 	mux.HandleFunc("GET /api/v1/file/{source}/{musicid}/{name}", a.handleFile)
+
+	// v0 契约：{method}/{source}/{id}/{quality}
+	// quality 允许为空（文档要求此时保留尾部斜杠），因此同时注册两种形状。
+	mux.HandleFunc("GET /api/v0/{method}/{source}/{id}/{quality...}", a.handleV0)
+	mux.HandleFunc("GET /api/v0/{method}/{source}/{id}", a.handleV0)
 	return mux
 }
 

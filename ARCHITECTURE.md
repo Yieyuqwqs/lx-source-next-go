@@ -244,3 +244,51 @@ GET /api/v1/file/{source}/{musicid}/{name}
 
 `ETag` 由 `大小-mtime` 构造强校验器，内容一变必然变；
 `If-Range` 不匹配时 `ServeContent` 会自动忽略 `Range` 返回 200 全文。
+
+## 10. v0 契约层
+
+```
+GET /api/v0/{method}/{source}/{id}/{quality}
+     │        │        │      │      └─ 可空；空时保留尾部斜杠
+     │        │        │      └─ 音质
+     │        │        └─ 资源 ID
+     │        └─ 平台二字码 → source.Registry
+     └─ url|link lrc|lyric mov|mv mid vid pic
+```
+
+### 方法别名表是唯一分发真源
+
+`v0Aliases` 一张表决定全部方法路由。加别名只改表，handler 不动。
+
+### `?jmp` 302
+
+| 方法 | 带 jmp 的行为 |
+|---|---|
+| `url` / `link` | 302 → 播放直链 |
+| `mov` / `mv` | 302 → 视频直链 |
+| `pic` | 302 → 封面地址 |
+| `lrc` / `lyric` | **直接吐 text/plain**（正文 + 翻译 + 罗马音） |
+| `mid` / `vid` | 忽略 jmp，返回 JSON |
+
+出错时**不跳转**，仍返回 JSON 错误——这是文档约定，播放器依赖它判断失败。
+
+302 响应显式带 `Cache-Control: no-store`：直链有时效，不能被中间层缓存。
+
+### 链路全貌
+
+```
+请求 → 客户端地址 → 访问日志 → panic 兜底 → 黑白名单 → 密钥 → 限流
+     → handleV0 → 方法分发 → 来源查找 → 缓存读穿 → Source → 响应
+                                      └─ 命中：不碰上游
+```
+
+### 内部缓存键隔离
+
+v0 的 url/lyric 结果缓存在 `_meta/...` 命名空间下。
+文件路由显式拒绝 `_` 开头的首段，避免内部元数据被当音频下载。
+
+### mock 来源
+
+`pkg/source/mock` 满足同一个 `source.Source` 接口，提供确定性数据，
+并支持用特殊 ID `notfound` 触发 404，用于验证错误链路。
+接真实平台时从注册表移除即可，handler 零改动。

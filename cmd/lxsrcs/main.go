@@ -18,6 +18,8 @@ import (
 	"github.com/lxsrcs/lx-source-next/pkg/config"
 	"github.com/lxsrcs/lx-source-next/pkg/logx"
 	"github.com/lxsrcs/lx-source-next/pkg/server"
+	"github.com/lxsrcs/lx-source-next/pkg/source"
+	"github.com/lxsrcs/lx-source-next/pkg/source/mock"
 )
 
 func main() {
@@ -95,7 +97,13 @@ func run() error {
 	cacheReader := cache.NewReader(fileCache, cachePolicy, cache.ReaderOptions{Logger: logger})
 	logger.Info("缓存已就绪", "dir", fileCache.Root())
 
-	// ---- 6. 装配应用：所有依赖显式注入 ----
+	// ---- 6. 解析源：接真实平台时替换这张表即可，handler 不用动 ----
+	sources := source.Registry{
+		"mock": mock.New(),
+	}
+	logger.Info("已注册解析源", "codes", sources.Codes())
+
+	// ---- 7. 装配应用：所有依赖显式注入 ----
 	app := server.New(server.Deps{
 		Config:  holder,
 		Logger:  logger,
@@ -103,6 +111,7 @@ func run() error {
 		Limiter: nil, // 用内置内存实现；换 Redis 时只改这一行
 		Cache:   cacheReader,
 		Files:   fileCache,
+		Sources: sources,
 		Options: server.Options{
 			TrustProxy:       boot.Proxy,
 			RealIPHeaders:    boot.RealIPHeaders(),
@@ -113,7 +122,7 @@ func run() error {
 		},
 	})
 
-	// ---- 7. 跑起来 ----
+	// ---- 8. 跑起来 ----
 	return app.Run(ctx, boot.Listen)
 }
 

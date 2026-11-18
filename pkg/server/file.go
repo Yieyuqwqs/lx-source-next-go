@@ -116,7 +116,13 @@ func (a *App) handleFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	key, err := buildFileKey(r.PathValue("source"), r.PathValue("musicid"), r.PathValue("name"))
+	sourceCode := r.PathValue("source")
+	// 以 _ 开头的是内部缓存键（如 _meta/...），不属于对外文件
+	if strings.HasPrefix(sourceCode, "_") {
+		httpx.Fail(w, apierr.New(apierr.CodeNotFound, "缓存中不存在该文件"))
+		return
+	}
+	key, err := buildFileKey(sourceCode, r.PathValue("musicid"), r.PathValue("name"))
 	if err != nil {
 		httpx.Fail(w, apierr.New(apierr.CodeBadRequest, "文件路径非法"))
 		return
