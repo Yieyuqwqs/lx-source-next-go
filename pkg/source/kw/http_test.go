@@ -177,8 +177,9 @@ func TestAntiStrategy(t *testing.T) {
 	if li.Link != "https://kw.invalid/anti/228908.mp3" {
 		t.Errorf("Link = %q", li.Link)
 	}
-	if li.Qual != quality.Q320 {
-		t.Errorf("Qual = %q", li.Qual)
+	// anti 会忽略 br，只能给出保守音质，不得谎报
+	if li.Qual != DefaultAntiQuality {
+		t.Errorf("Qual = %q, want %q", li.Qual, DefaultAntiQuality)
 	}
 	if seen.Load() != 1 {
 		t.Errorf("上游调用 %d 次", seen.Load())
