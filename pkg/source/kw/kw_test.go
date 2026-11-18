@@ -327,3 +327,29 @@ func TestClientImplementsSource(t *testing.T) {
 		t.Errorf("Src = %q", s.Src())
 	}
 }
+
+func TestParseAntiURL(t *testing.T) {
+	ok := map[string]string{
+		`https://kw.invalid/a.mp3`:                       "https://kw.invalid/a.mp3",
+		"  https://kw.invalid/b.mp3\n":                   "https://kw.invalid/b.mp3",
+		"https://kw.invalid/c.mp3\r\nextra":              "https://kw.invalid/c.mp3",
+		`{"code":200,"data":"https://kw.invalid/d.mp3"}`: "https://kw.invalid/d.mp3",
+	}
+	for in, want := range ok {
+		got, err := ParseAntiURL([]byte(in))
+		if err != nil {
+			t.Errorf("ParseAntiURL(%q) 报错: %v", in, err)
+			continue
+		}
+		if got != want {
+			t.Errorf("ParseAntiURL(%q) = %q, want %q", in, got, want)
+		}
+	}
+
+	bad := []string{"", "   ", "not a url", "<html>502</html>"}
+	for _, b := range bad {
+		if _, err := ParseAntiURL([]byte(b)); err == nil {
+			t.Errorf("ParseAntiURL(%q) 应报错", b)
+		}
+	}
+}

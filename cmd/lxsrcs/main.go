@@ -19,6 +19,7 @@ import (
 	"github.com/lxsrcs/lx-source-next/pkg/logx"
 	"github.com/lxsrcs/lx-source-next/pkg/server"
 	"github.com/lxsrcs/lx-source-next/pkg/source"
+	"github.com/lxsrcs/lx-source-next/pkg/source/kw"
 	"github.com/lxsrcs/lx-source-next/pkg/source/mock"
 )
 
@@ -98,10 +99,18 @@ func run() error {
 	logger.Info("缓存已就绪", "dir", fileCache.Root())
 
 	// ---- 6. 解析源：接真实平台时替换这张表即可，handler 不用动 ----
+	kwSrc := kw.New(kw.Config{
+		Strategy: boot.Kw.Strategy,
+		BaseURL:  boot.Kw.BaseURL,
+		Key:      []byte(boot.Kw.Key),
+	}, nil)
+
 	sources := source.Registry{
 		"mock": mock.New(),
+		"kw":   kwSrc,
 	}
 	logger.Info("已注册解析源", "codes", sources.Codes())
+	logger.Info(kwSrc.Describe())
 
 	// ---- 7. 装配应用：所有依赖显式注入 ----
 	app := server.New(server.Deps{

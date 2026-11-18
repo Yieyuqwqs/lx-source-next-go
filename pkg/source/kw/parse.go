@@ -171,3 +171,27 @@ func toInt(v any) (int64, bool) {
 func bytesTrimSpace(b []byte) []byte {
 	return []byte(strings.TrimSpace(string(b)))
 }
+
+// ParseAntiURL 解析 antiserver 的纯文本响应。
+//
+// 该接口在 response=url 时直接返回裸链接（可能带换行），不需要任何解密。
+// 少数实现会返回 JSON，这里顺带兼容。
+func ParseAntiURL(body []byte) (string, error) {
+	s := strings.TrimSpace(string(body))
+	if s == "" {
+		return "", errors.New("kw: 空响应")
+	}
+	if strings.HasPrefix(s, "{") {
+		if res, err := ParseConvertURL(body); err == nil {
+			return res.URL, nil
+		}
+	}
+	if !strings.HasPrefix(s, "http") {
+		return "", fmt.Errorf("kw: 响应不是链接: %.80q", s)
+	}
+	// 去掉可能追加的额外内容
+	if i := strings.IndexAny(s, "\r\n"); i > 0 {
+		s = s[:i]
+	}
+	return strings.TrimSpace(s), nil
+}

@@ -11,3 +11,13 @@ Cors = false
 ReloadInterval = '2s'
 # 缓存目录（部署形态，不参与热更）
 CacheDir = 'data/cache'
+
+# 酷我来源（启动期参数，改了要重启）
+[Kw]
+# anti = 免密钥的 antiserver 接口（默认，匿名可用）
+# mobi = 需要 8 字节 DES 密钥的 mobi 接口
+Strategy = 'anti'
+# 留空则用内置默认地址：anti → https://antiserver.kuwo.cn
+BaseURL = ''
+# mobi 策略用的 DES 密钥；留空则 mobi 不可用
+Key = ''

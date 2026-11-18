@@ -110,6 +110,12 @@ done
 cp /tmp/dynamic.bak data/dynamic.toml
 
 line
+printf '### 酷我来源（anti 策略：免密钥，真实网络）\n'
+show "kw 取链（可能因网络/风控失败，失败即打印上一行）" "$BASE/api/v0/url/kw/228908/320k"
+show "kw 音质回落 master" "$BASE/api/v0/url/kw/228908/master"
+show "kw 未实现能力 → 503" "$BASE/api/v0/mid/kw/228908"
+
+line
 printf '### 服务端日志尾部\n'
 tail -25 /tmp/lxsrcs.log
 

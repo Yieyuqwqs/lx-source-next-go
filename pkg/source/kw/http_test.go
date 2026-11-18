@@ -145,3 +145,75 @@ func TestWithHTTPTestServerLyric(t *testing.T) {
 		t.Error("应带回翻译歌词")
 	}
 }
+
+// TestAntiStrategy 覆盖免密钥的 antiserver 路径。
+func TestAntiStrategy(t *testing.T) {
+	var seen atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen.Add(1)
+		q := r.URL.Query()
+		if q.Get("type") != "convert_url" {
+			http.Error(w, "type 不对", http.StatusBadRequest)
+			return
+		}
+		if q.Get("rid") != "MUSIC_228908" {
+			http.Error(w, "rid 不对: "+q.Get("rid"), http.StatusBadRequest)
+			return
+		}
+		if q.Get("response") != "url" {
+			http.Error(w, "response 不对", http.StatusBadRequest)
+			return
+		}
+		// 该接口返回裸链接，可能带换行
+		io.WriteString(w, "https://kw.invalid/anti/228908.mp3\n")
+	}))
+	defer srv.Close()
+
+	c := New(Config{Strategy: StrategyAnti, BaseURL: srv.URL}, nil)
+	li, err := c.URL(context.Background(), "228908", "320k")
+	if err != nil {
+		t.Fatalf("URL: %v", err)
+	}
+	if li.Link != "https://kw.invalid/anti/228908.mp3" {
+		t.Errorf("Link = %q", li.Link)
+	}
+	if li.Qual != quality.Q320 {
+		t.Errorf("Qual = %q", li.Qual)
+	}
+	if seen.Load() != 1 {
+		t.Errorf("上游调用 %d 次", seen.Load())
+	}
+}
+
+func TestStrategyInference(t *testing.T) {
+	// 无密钥 → anti
+	if got := New(Config{}, nil).Strategy(); got != StrategyAnti {
+		t.Errorf("无密钥应推断为 anti，实际 %q", got)
+	}
+	// 有 8 字节密钥 → mobi
+	if got := New(Config{Key: []byte("12345678")}, nil).Strategy(); got != StrategyMobi {
+		t.Errorf("有密钥应推断为 mobi，实际 %q", got)
+	}
+	// 显式指定优先
+	if got := New(Config{Strategy: StrategyAnti, Key: []byte("12345678")}, nil).Strategy(); got != StrategyAnti {
+		t.Errorf("显式策略应优先，实际 %q", got)
+	}
+}
+
+func TestAntDefaults(t *testing.T) {
+	c := New(Config{}, nil)
+	if c.BaseURL() != DefaultAntiBaseURL {
+		t.Errorf("默认地址 = %q", c.BaseURL())
+	}
+	c = New(Config{Key: []byte("12345678")}, nil)
+	if c.BaseURL() != DefaultMobiBaseURL {
+		t.Errorf("mobi 默认地址 = %q", c.BaseURL())
+	}
+}
+
+func TestAntiStrategyNoLyric(t *testing.T) {
+	c := New(Config{Strategy: StrategyAnti}, &fakeDoer{})
+	if _, err := c.Lyric(context.Background(), "1"); err == nil {
+		t.Error("anti 策略不提供歌词，应报错")
+	}
+}

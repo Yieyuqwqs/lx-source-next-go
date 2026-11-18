@@ -29,6 +29,8 @@ type Bootstrap struct {
 	ReloadInterval string `toml:"ReloadInterval"`
 	// CacheDir 缓存目录。属于部署形态，不参与热更。
 	CacheDir string `toml:"CacheDir"`
+	// Kw 是酷我来源的上游参数。
+	Kw KwConf `toml:"Kw"`
 }
 
 // DefaultBootstrap 返回默认启动配置。
@@ -39,6 +41,7 @@ func DefaultBootstrap() Bootstrap {
 		Console:        true,
 		ReloadInterval: "2s",
 		CacheDir:       "data/cache",
+		Kw:             KwConf{Strategy: "anti"},
 	}
 }
 
@@ -89,4 +92,17 @@ func LoadBootstrap(path string) (Bootstrap, error) {
 		return Bootstrap{}, fmt.Errorf("config: 读取 %s: %w", path, err)
 	}
 	return ParseBootstrap(raw)
+}
+
+// KwConf 是酷我来源的上游参数。
+//
+// 放在启动配置而不是动态配置：上游地址与密钥属于部署形态，
+// 改它们本就该重启，热更它们只会制造"配置变了但仍连旧地址"的困扰。
+type KwConf struct {
+	// Strategy 上游策略：anti 免密钥（默认），mobi 需要密钥。
+	Strategy string `toml:"Strategy"`
+	// BaseURL 上游根地址；留空时按策略取内置默认值。
+	BaseURL string `toml:"BaseURL"`
+	// Key mobi 策略用的 8 字节 DES 密钥。
+	Key string `toml:"Key"`
 }
