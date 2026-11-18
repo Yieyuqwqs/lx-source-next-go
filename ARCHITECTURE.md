@@ -341,3 +341,25 @@ pkg/source/kw/
 
 `Config.BaseURL` 或 `Key` 缺失时，`Client` 直接返回 `503 + 明确说明`，
 **不会发起注定失败的请求**，也不会伪造数据。
+
+### 实测结论：antiserver 会忽略 `br`
+
+在 GitHub runner 上对同一首歌分别请求 128k / 320k / flac / flac24bit，
+四次返回的是**同一个资源文件**，只有 CDN 签名前缀不同：
+
+```
+128k      → .../nf/resource/n1/69/32/588957081.mp3
+320k      → .../nf/resource/n1/69/32/588957081.mp3
+flac      → .../nf/resource/n1/69/32/588957081.mp3
+flac24bit → .../nf/resource/n1/69/32/588957081.mp3
+```
+
+由此做了两处修正：
+
+1. **不再谎报音质**：`anti` 策略固定上报一个保守音质（默认 `128k`，可通过
+   `Config.AntiQuality` 调整）。拿到的是 mp3 就绝不能对外声称 flac24bit。
+2. **缓存键归一化**：新增可选接口 `source.QualityNormalizer`，
+   上层用它把请求音质折成该来源真正支持的档位后再做缓存键。
+   否则同一份文件会被存成四份、并产生四次上游调用。
+
+取舍说明：宁可低报音质，也不高报。想要真实音质需要启用 `mobi` 策略 + 密钥。
