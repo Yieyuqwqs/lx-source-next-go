@@ -91,6 +91,17 @@ type Source interface {
 	Pic(ctx context.Context, id, size string) (string, error)
 }
 
+// QualityNormalizer 是可选能力：把请求音质归一到该来源真正支持的档位。
+//
+// 用途有二：
+//   - 缓存键去重（同一份文件不该因为请求写法不同而存多份）；
+//   - 上报真实音质（宁可不报无损，也不谎报）。
+//
+// 不实现该接口的来源按请求原样处理。
+type QualityNormalizer interface {
+	NormalizeQuality(req string) string
+}
+
 // Registry 是来源注册表。用 map 而非全局变量，便于测试与多实例。
 type Registry map[string]Source
 

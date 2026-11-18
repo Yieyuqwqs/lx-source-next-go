@@ -228,3 +228,35 @@ func TestKwAntiNoLyricChain(t *testing.T) {
 		t.Errorf("anti 策略不提供歌词，应 503，实际 %d", rec.Code)
 	}
 }
+
+// TestKwAntiQualityDedupe 验证 anti 策略下不同音质请求只占一份缓存、只打一次上游。
+func TestKwAntiQualityDedupe(t *testing.T) {
+	var calls atomic.Int64
+	app, fc := newKwAntiApp(t, &calls)
+
+	for _, q := range []string{"128k", "320k", "flac", "flac24bit"} {
+		if rec := get(t, app, "/api/v0/url/kw/228908/"+q); rec.Code != http.StatusOK {
+			t.Fatalf("音质 %s 状态码 = %d", q, rec.Code)
+		}
+	}
+	// 四次请求，但 anti 只有一档，缓存键归一后只应打上游一次
+	if calls.Load() != 1 {
+		t.Errorf("上游调用 %d 次，want 1（音质应被归一化）", calls.Load())
+	}
+	// 缓存里只应有一个条目
+	p, err := fc.Path("_meta/kw/228908-128k.url")
+	if err != nil {
+		t.Fatalf("Path: %v", err)
+	}
+	if _, err := os.Stat(p); err != nil {
+		t.Errorf("归一化后的缓存键不存在: %v", err)
+	}
+	if _, err := os.Stat(p + ".meta"); err != nil {
+		t.Errorf("缓存元信息不存在: %v", err)
+	}
+	// 上报的音质必须是保守值，不得谎报无损
+	rec := get(t, app, "/api/v0/url/kw/228908/flac24bit")
+	if ext, _ := decode(t, rec)["ext"].(map[string]any); ext["qual"] != "128k" {
+		t.Errorf("qual = %v，不应谎报无损", ext["qual"])
+	}
+}

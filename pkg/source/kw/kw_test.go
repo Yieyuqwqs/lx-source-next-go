@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
@@ -351,5 +352,60 @@ func TestParseAntiURL(t *testing.T) {
 		if _, err := ParseAntiURL([]byte(b)); err == nil {
 			t.Errorf("ParseAntiURL(%q) 应报错", b)
 		}
+	}
+}
+
+func TestAntiNormalizeQuality(t *testing.T) {
+	c := New(Config{Strategy: StrategyAnti}, nil)
+	// anti 只支持一档，任何请求都归一
+	for _, in := range []string{"128k", "192k", "320k", "flac", "flac24bit", "master", "hires"} {
+		if got := c.NormalizeQuality(in); got != DefaultAntiQuality {
+			t.Errorf("NormalizeQuality(%q) = %q, want %q", in, got, DefaultAntiQuality)
+		}
+	}
+}
+
+func TestMobiNormalizeQuality(t *testing.T) {
+	c := New(Config{Strategy: StrategyMobi, Key: testKey}, nil)
+	cases := map[string]string{
+		"128k":   quality.Q128,
+		"320k":   quality.Q320,
+		"flac":   quality.QFlac,
+		"hires":  quality.QFlac24,
+		"master": quality.QFlac24, // 回落
+	}
+	for in, want := range cases {
+		if got := c.NormalizeQuality(in); got != want {
+			t.Errorf("NormalizeQuality(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestAntiReportsConservativeQuality(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, "https://kw.invalid/x.mp3\n")
+	}))
+	defer srv.Close()
+
+	c := New(Config{Strategy: StrategyAnti, BaseURL: srv.URL}, nil)
+	// 请求 flac，但 anti 无法保证无损，必须如实低报
+	li, err := c.URL(context.Background(), "1", "flac")
+	if err != nil {
+		t.Fatalf("URL: %v", err)
+	}
+	if li.Qual != DefaultAntiQuality {
+		t.Errorf("Qual = %q, want %q（不得谎报无损）", li.Qual, DefaultAntiQuality)
+	}
+}
+
+func TestAntiQualityConfigurable(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, "https://kw.invalid/x.mp3\n")
+	}))
+	defer srv.Close()
+
+	c := New(Config{Strategy: StrategyAnti, BaseURL: srv.URL, AntiQuality: "320k"}, nil)
+	if got := c.NormalizeQuality("flac"); got != quality.Q320 {
+		t.Errorf("可配置音质未生效: %q", got)
 	}
 }

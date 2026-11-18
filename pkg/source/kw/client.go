@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/lxsrcs/lx-source-next/pkg/apierr"
+	"github.com/lxsrcs/lx-source-next/pkg/quality"
 	"github.com/lxsrcs/lx-source-next/pkg/source"
 )
 
@@ -46,6 +47,9 @@ const (
 
 // maxBody 是响应体读取上限，防止异常上游打爆内存。
 const maxBody = 8 << 20
+
+// DefaultAntiQuality 是 anti 策略默认上报的音质（保守取值）。
+const DefaultAntiQuality = quality.Q128
 
 // Doer 抽象 HTTP 执行器，测试可注入假实现，无需真实网络。
 type Doer interface {
@@ -71,6 +75,12 @@ type Config struct {
 	PathLyric string
 	// UserAgent 请求头。
 	UserAgent string
+	// AntiQuality 是 anti 策略下上报的音质。
+	//
+	// antiserver 会忽略 br 参数、固定返回同一个文件，
+	// 因此这里无法得知真实码率。默认取最保守的 128k：
+	// 宁可在界面上低报，也不把 mp3 谎称成无损。
+	AntiQuality string
 	// Expire 直链有效期近似值，用于填充 expi。
 	Expire time.Duration
 }
@@ -120,6 +130,14 @@ func New(cfg Config, doer Doer) *Client {
 	}
 	if cfg.PathLyric == "" {
 		cfg.PathLyric = "/mobi.s"
+	}
+	if cfg.AntiQuality == "" {
+		cfg.AntiQuality = DefaultAntiQuality
+	}
+	if c, ok := quality.Canonical(cfg.AntiQuality); ok {
+		cfg.AntiQuality = c
+	} else {
+		cfg.AntiQuality = DefaultAntiQuality
 	}
 	if cfg.Expire <= 0 {
 		cfg.Expire = 30 * time.Minute
@@ -175,7 +193,7 @@ func (c *Client) URL(ctx context.Context, id, q string) (source.LinkInfo, error)
 	if id == "" {
 		return source.LinkInfo{}, apierr.New(apierr.CodeBadRequest, "缺少音乐 ID")
 	}
-	br, canonical, ok := ResolveQuality(q)
+	br, canonical, ok := c.resolveQuality(q)
 	if !ok {
 		return source.LinkInfo{}, apierr.Newf(apierr.CodeBadRequest, "酷我不支持音质 %q", q)
 	}
@@ -357,4 +375,41 @@ func maskKey(k []byte) string {
 		return "未配置"
 	}
 	return fmt.Sprintf("已配置(%d 字节)", len(k))
+}
+
+// supported 返回当前策略真正支持的规范音质。
+//
+// anti 策略只有一档：该接口忽略 br，返回固定文件。
+func (c *Client) supported() []string {
+	if c.cfg.Strategy == StrategyAnti {
+		return []string{c.cfg.AntiQuality}
+	}
+	return SupportedQualities()
+}
+
+// resolveQuality 在可用集合内回落，并给出对应的 br 参数。
+func (c *Client) resolveQuality(req string) (br, canonical string, ok bool) {
+	canonical, ok = quality.Resolve(req, c.supported())
+	if !ok {
+		return "", "", false
+	}
+	br = brTable[canonical]
+	if br == "" {
+		return "", "", false
+	}
+	return br, canonical, true
+}
+
+// NormalizeQuality 实现 source.QualityNormalizer。
+//
+// 让上层用它做缓存键：anti 策略下 128k/320k/flac 指向同一份文件，
+// 不该各存一份。
+func (c *Client) NormalizeQuality(req string) string {
+	if c.cfg.Strategy == StrategyAnti {
+		return c.cfg.AntiQuality
+	}
+	if _, canonical, ok := c.resolveQuality(req); ok {
+		return canonical
+	}
+	return req
 }

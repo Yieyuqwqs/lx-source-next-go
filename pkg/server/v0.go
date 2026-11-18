@@ -92,8 +92,16 @@ func (a *App) handleV0(w http.ResponseWriter, r *http.Request) {
 //
 // 走缓存：同一 (source,id,quality) 在 TTL 内只向上游要一次。
 func (a *App) v0URL(w http.ResponseWriter, r *http.Request, src source.Source, id, quality string, jmp bool) {
-	key := internalPrefix + src.Src() + "/" + id + "-" + orDefault(quality, "default") + ".url"
-	raw, err := a.cachedJSON(r.Context(), key, cache.Meta{Source: src.Src(), Quality: quality},
+	// 先把音质归一到该来源真正支持的档位：
+	// 同一份文件不该因为请求写法不同而在缓存里存多份。
+	q := quality
+	if n, ok := src.(source.QualityNormalizer); ok {
+		if norm := n.NormalizeQuality(quality); norm != "" {
+			q = norm
+		}
+	}
+	key := internalPrefix + src.Src() + "/" + id + "-" + orDefault(q, "default") + ".url"
+	raw, err := a.cachedJSON(r.Context(), key, cache.Meta{Source: src.Src(), Quality: q},
 		func(ctx context.Context) ([]byte, error) {
 			li, err := src.URL(ctx, id, quality)
 			if err != nil {
