@@ -46,7 +46,9 @@ TTL = 3600
 [Data.Rule]
 # 平台列表是否为排除语义
 ExcP = false
-Plat = ['wy', 'mg', 'kw', 'kg']
+# 注意：列表里没有的平台不会被缓存。
+# mock 是本地验证用的假来源，验证缓存链路时先留着；接真实平台后可删。
+Plat = ['wy', 'mg', 'kw', 'kg', 'mock']
 # 音质列表是否为排除语义
 ExcQ = false
 Qual = ['128k', '192k', '320k', 'flac', 'flac24bit']
