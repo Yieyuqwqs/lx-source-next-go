@@ -1,43 +1,37 @@
 #!/usr/bin/env bash
-# 第三轮：验证公开搜索接口，并用真实 ID 跑通「搜索 → 取链 → 歌词」。
+# 第四轮：只攻歌词，测试是否因为缺少 UA/Referer 被拒。
 set -uo pipefail
 
-echo "=== F) 公开搜索接口 ==="
-curl -sS -m 12 -o /tmp/s.json \
-  -w 'HTTP %{http_code} | %{size_download} bytes | type=%{content_type}\n' \
-  'http://search.kuwo.cn/r.s?all=%E5%91%A8%E6%9D%B0%E4%BC%A6&ft=music&itemset=web_2013&client=kt&pn=0&rn=5&rformat=json&encoding=utf8' 2>&1
-head -c 600 /tmp/s.json 2>/dev/null
-printf '\n\n'
+ID=474678847
+UA_M='Mozilla/5.0 (Linux; Android 13; MI 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36'
 
-echo "=== G) 提取第一个 musicrid ==="
-grep -oE 'MUSIC_[0-9]+' /tmp/s.json 2>/dev/null | head -3 > /tmp/rid.txt
-head -3 /tmp/rid.txt
-sed -E 's/[^0-9]//g' /tmp/rid.txt > /tmp/rid2.txt
-head -1 /tmp/rid2.txt > /tmp/rid3.txt
-RID=$(cat /tmp/rid3.txt 2>/dev/null)
-printf '取到 ID = [%s]\n\n' "$RID"
-
-if [ -n "$RID" ]; then
-  echo "=== H) 真实 ID 取链 ==="
-  curl -sS -m 12 -o /tmp/u.txt \
-    -w 'HTTP %{http_code} | %{size_download} bytes\n' \
-    "http://antiserver.kuwo.cn/anti.s?type=convert_url&format=mp3&response=url&rid=MUSIC_$RID" 2>&1
-  head -c 200 /tmp/u.txt 2>/dev/null
-  printf '\n\n'
-
-  echo "=== I) 真实 ID 取歌词（H5） ==="
-  curl -sS -m 12 -o /tmp/l.json \
-    -w 'HTTP %{http_code} | %{size_download} bytes\n' \
-    "https://m.kuwo.cn/newh5/singles/songinfoandlrc?musicId=$RID" 2>&1
-  head -c 400 /tmp/l.json 2>/dev/null
-  printf '\n\n'
-
-  echo "=== J) 歌词字段结构（前 3 条 lrclist） ==="
-  grep -oE '\{"lineLyric":"[^"]{0,80}","time":"[0-9.]+"\}' /tmp/l.json 2>/dev/null | head -3
+p() {
+  local title="$1"; shift
+  printf '\n─────────────\n%s\n' "$title"
+  curl -sS -m 12 -o /tmp/l.out -w 'HTTP %{http_code} | %{size_download} bytes\n' "$@" 2>&1
+  head -c 300 /tmp/l.out 2>/dev/null
   printf '\n'
-else
-  echo "未取到 ID，搜索接口可能已不可用"
-fi
+}
+
+p "1) H5 歌词 + 移动端 UA" \
+  -H "User-Agent: $UA_M" \
+  "https://m.kuwo.cn/newh5/singles/songinfoandlrc?musicId=$ID"
+
+p "2) H5 歌词 + UA + Referer" \
+  -H "User-Agent: $UA_M" -H "Referer: https://m.kuwo.cn/" \
+  "https://m.kuwo.cn/newh5/singles/songinfoandlrc?musicId=$ID"
+
+p "3) H5 歌词 + httpsStatus" \
+  -H "User-Agent: $UA_M" \
+  "https://m.kuwo.cn/newh5/singles/songinfoandlrc?musicId=$ID&httpsStatus=1"
+
+p "4) 老版 newlyric 纯文本 + UA" \
+  -H "User-Agent: $UA_M" \
+  "http://newlyric.kuwo.cn/newlyric.lrc?$ID"
+
+p "5) 网页版歌词 API + UA" \
+  -H "User-Agent: $UA_M" -H "Referer: https://www.kuwo.cn/" \
+  "https://www.kuwo.cn/api/www/music/lyric?musicId=$ID&httpsStatus=1"
 
 echo
-echo "=== 第三轮探测结束 ==="
+echo "=== 第四轮结束 ==="
