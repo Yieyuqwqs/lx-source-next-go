@@ -7,7 +7,7 @@ import (
 )
 
 // searchFixture 复刻真实响应的形状：单引号伪 JSON + abslist。
-const searchFixture = `{'ARTISTPIC':'','HIT':'3600','HITMODE':'song','TOTAL':'3600','PN':'0','RN':'5','SHOW':'5','abslist:[{'AARTIST':'','ALBUM':'魔杰座','ARTIST':'周杰伦','DC_TARGETID':'474678847','DC_TARGETTYPE':'music','DURATION':'210','FORMATS':'AAC48|MP3128|MP3H|OGG192','SONGNAME':'给我一首歌的时间'},{'ALBUM':'','ARTIST':'某人','DC_TARGETID':'349354644','DURATION':'200','FORMATS':'MP3128','SONGNAME':'另一首'}]}`
+const searchFixture = `{'ARTISTPIC':'','HIT':'3600','HITMODE':'song','TOTAL':'3600','PN':'0','RN':'5','SHOW':'5','abslist':[{'AARTIST':'','ALBUM':'魔杰座','ARTIST':'周杰伦','DC_TARGETID':'474678847','DC_TARGETTYPE':'music','DURATION':'210','FORMATS':'AAC48|MP3128|MP3H|OGG192','SONGNAME':'给我一首歌的时间'},{'ALBUM':'','ARTIST':'某人','DC_TARGETID':'349354644','DURATION':'200','FORMATS':'MP3128','SONGNAME':'另一首'}]}`
 
 func TestParseSearch(t *testing.T) {
 	res, err := ParseSearch([]byte(searchFixture))
@@ -48,7 +48,7 @@ func TestParseSearch(t *testing.T) {
 }
 
 func TestParseSearchEmptyResult(t *testing.T) {
-	res, err := ParseSearch([]byte(`{'TOTAL':'0','abslist:[]}`))
+	res, err := ParseSearch([]byte(`{'TOTAL':'0','abslist':[]}`))
 	if err != nil {
 		t.Fatalf("空结果不应报错: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestParseSearchEmptyResult(t *testing.T) {
 }
 
 func TestParseSearchErrors(t *testing.T) {
-	for _, bad := range []string{"", "not a response", `{'abslist:[{'A':'b'}`} {
+	for _, bad := range []string{"", "not a response", `{'abslist':[{'A':'b'}`} {
 		if _, err := ParseSearch([]byte(bad)); err == nil {
 			t.Errorf("%q 应报错", bad)
 		}

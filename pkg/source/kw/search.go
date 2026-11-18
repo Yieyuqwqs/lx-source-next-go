@@ -52,15 +52,21 @@ func ParseSearch(body []byte) (source.SearchResult, error) {
 		out.Total = n
 	}
 
-	start := strings.Index(raw, "abslist:[")
-	if start < 0 {
+	// 真实响应里键是被引号包起来的：abslist:[{
+	// 所以先定位 abslist，再取它之后的第一个 [。
+	token := strings.Index(raw, "abslist")
+	if token < 0 {
 		// 有 total 但没结果列表，属于合法空结果
-		if out.Total >= 0 && strings.Contains(raw, "TOTAL") {
+		if strings.Contains(raw, "TOTAL") {
 			return out, nil
 		}
 		return source.SearchResult{}, errors.New("kw: 响应里没有 abslist")
 	}
-	start += len("abslist:")
+	rel := strings.IndexByte(raw[token:], '[')
+	if rel < 0 {
+		return source.SearchResult{}, errors.New("kw: abslist 后没有数组")
+	}
+	start := token + rel
 
 	end := matchBracket(raw, start)
 	if end < 0 {

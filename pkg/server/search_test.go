@@ -14,7 +14,7 @@ import (
 )
 
 // searchBody 复刻酷我搜索接口的真实形状（单引号伪 JSON）。
-const searchBody = `{'HIT':'3600','TOTAL':'3600','abslist:[{'ALBUM':'魔杰座','ARTIST':'周杰伦','DC_TARGETID':'474678847','DURATION':'210','FORMATS':'MP3128|MP3H','SONGNAME':'给我一首歌的时间'}]}`
+const searchBody = `{'HIT':'3600','TOTAL':'3600','abslist':[{'ALBUM':'魔杰座','ARTIST':'周杰伦','DC_TARGETID':'474678847','DURATION':'210','FORMATS':'MP3128|MP3H','SONGNAME':'给我一首歌的时间'}]}`
 
 // doerFunc 把固定响应喂给客户端。
 type doerFunc struct {
