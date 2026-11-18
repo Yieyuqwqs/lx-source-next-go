@@ -120,6 +120,14 @@ show "kw 音质回落 master" "$BASE/api/v0/url/kw/228908/master"
 show "kw 未实现能力 → 503" "$BASE/api/v0/mid/kw/228908"
 
 line
+printf '### 诊断：br 参数是否真的生效（同曲不同音质对比）\n'
+for q in 128k 320k flac flac24bit; do
+  printf '%-10s → ' "$q"
+  curl -sS "$BASE/api/v0/url/kw/228908/$q"
+  printf '\n'
+done
+
+line
 printf '### 服务端日志尾部\n'
 tail -25 /tmp/lxsrcs.log
 
