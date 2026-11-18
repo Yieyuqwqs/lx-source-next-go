@@ -187,8 +187,12 @@ func str(m map[string]any, key string) string {
 		return ""
 	}
 	s, _ := v.(string)
-	// 上游会把歌名里的空格等编码成实体，这里统一反转义
-	return strings.TrimSpace(html.UnescapeString(s))
+	// 上游会把歌名里的空格等编码成实体。
+	// &nbsp; 反转义后是 U+00A0（不换行空格），与普通空格不等价，
+	// 会给搜索匹配和显示添乱，这里统一归一成普通空格。
+	s = html.UnescapeString(s)
+	s = strings.ReplaceAll(s, " ", " ")
+	return strings.TrimSpace(s)
 }
 
 func firstStr(m map[string]any, keys ...string) string {

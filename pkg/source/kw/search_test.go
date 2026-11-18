@@ -114,7 +114,7 @@ func TestParseSearchUnescapesEntities(t *testing.T) {
 		t.Fatalf("Items = %d", len(res.Items))
 	}
 	if got := res.Items[0].Name; got != "\u82b1\u6d77 (DJ\u7248)" {
-		t.Errorf("Name = %q，&nbsp; 应被反转义", got)
+		t.Errorf("Name = %q，&nbsp; 应反转义并归一为普通空格", got)
 	}
 	if got := res.Items[0].Ar[0].Name; got != "A&B" {
 		t.Errorf("Artist = %q，&amp; 应被反转义", got)
