@@ -39,6 +39,8 @@ type Deps struct {
 	Limiter ratelimit.Limiter
 	// Cache 是读穿缓存。为 nil 时不提供缓存观测。
 	Cache *cache.Reader
+	// Files 是缓存文件路径解析能力。为 nil 时文件路由返回 503。
+	Files FileStore
 	// Options 决定装哪些中间件。
 	Options Options
 }
@@ -171,6 +173,8 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("GET /api/v0/ping", a.handlePing)
 	mux.HandleFunc("GET /api/v1/status", a.handleStatus)
 	mux.HandleFunc("GET /api/v1/test/sse", a.handleSSE)
+	// 缓存文件下载：{source}/{musicid}/{quality}.{ext}
+	mux.HandleFunc("GET /api/v1/file/{source}/{musicid}/{name}", a.handleFile)
 	return mux
 }
 

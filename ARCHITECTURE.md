@@ -212,3 +212,35 @@ pkg/lrcutil/           歌词五格式
 |---|---|---|
 | `Main.CacheDir`（`Bootstrap.CacheDir`） | 启动期 | 数据落在哪属部署形态 |
 | `Data.Mode` / `Data.TTL` / `Data.Rule` | 热更期 | 缓存什么、多久属运营策略 |
+
+## 9. 文件路由：用标准 HTTP 语义取代自签临时链
+
+原版用 `Sign / Acip / Dyna / Expi` 自签临时链来保护缓存文件。现在改为：
+
+| 原版自造 | 现在 |
+|---|---|
+| `Sign` 签名密钥 | 不需要——路径本身就是内容寻址 |
+| `Expi` 临时链过期 | `Cache-Control: public, max-age=<Data.TTL>` |
+| `Dyna` 校验链接 | `ETag` + `If-None-Match` → 304 |
+| `Acip` 绑定 IP 入签名 | 需要时叠加 `auth.BanList` 中间件 |
+| 无 | `Range` / `If-Range` → 206 断点续传 |
+
+实现就是 `http.ServeContent`：它把 `Range` / `If-Range` / `If-None-Match` /
+`If-Modified-Since` 全部处理妥当，我们只负责设置 `Content-Type`、`ETag`、
+`Cache-Control` 并打开文件。
+
+```
+GET /api/v1/file/{source}/{musicid}/{name}
+                                └── {quality}.{ext}
+```
+
+### 路径穿越的两道闸
+
+1. **`buildFileKey`**：逐段白名单校验（`[A-Za-z0-9._-]`），拒绝空段、`.`、`..`、点开头、超长段。
+   之所以必须自己做：`ServeMux` 只做路径规范化，编码过的 `%2e%2e`、`%00`、`%5c`
+   解码后仍会原样落进 `PathValue`。
+2. **`cache.File.rel`**：驱动内部再校验一次。
+   两道闸刻意重复——安全边界不该只依赖上游一处判断。
+
+`ETag` 由 `大小-mtime` 构造强校验器，内容一变必然变；
+`If-Range` 不匹配时 `ServeContent` 会自动忽略 `Range` 返回 200 全文。

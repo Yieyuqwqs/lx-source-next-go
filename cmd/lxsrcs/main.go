@@ -102,6 +102,7 @@ func run() error {
 		LogHub:  hub,
 		Limiter: nil, // 用内置内存实现；换 Redis 时只改这一行
 		Cache:   cacheReader,
+		Files:   fileCache,
 		Options: server.Options{
 			TrustProxy:       boot.Proxy,
 			RealIPHeaders:    boot.RealIPHeaders(),

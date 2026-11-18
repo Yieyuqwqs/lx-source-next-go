@@ -28,6 +28,11 @@ const (
 	CodeRateLimited Code = 5
 	// CodeBadRequest 参数错误。
 	CodeBadRequest Code = 6
+	// CodeNotFound 资源不存在。
+	//
+	// 历史枚举里没有这一项，属于兼容性扩展：
+	// 老客户端只会看到 code!=0 并按 msg 处理，不会因为多一个码而错乱。
+	CodeNotFound Code = 7
 )
 
 // HTTPStatus 返回该代码对应的 HTTP 状态码。
@@ -47,6 +52,8 @@ func (c Code) HTTPStatus() int {
 		return http.StatusTooManyRequests
 	case CodeBadRequest:
 		return http.StatusBadRequest
+	case CodeNotFound:
+		return http.StatusNotFound
 	}
 	return http.StatusOK
 }
@@ -68,6 +75,8 @@ func (c Code) String() string {
 		return "rate_limited"
 	case CodeBadRequest:
 		return "bad_request"
+	case CodeNotFound:
+		return "not_found"
 	}
 	return fmt.Sprintf("code(%d)", int(c))
 }
