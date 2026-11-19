@@ -116,7 +116,10 @@ func (c *Client) URL(ctx context.Context, id, quality string) (source.LinkInfo, 
 	}
 	link, err := ParseSongURL(body)
 	if err != nil {
-		return source.LinkInfo{}, apierr.Wrap(apierr.CodeUnavailable, "kg: 解析取链响应失败", err)
+		// 实测结论：getSongInfo 只返回元信息，不含播放地址；
+		// 真正能发直链的 trackercdn 需要签名，匿名请求一律 errcode=20028。
+		return source.LinkInfo{}, apierr.Wrap(apierr.CodeUnavailable,
+			"kg: 匿名环境取不到直链（该接口只返回元信息，trackercdn 需签名）", err)
 	}
 	canonical := quality
 	if c, ok := normalizeQuality(quality); ok {
