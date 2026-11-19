@@ -69,8 +69,8 @@ func TestFromAndCodeOf(t *testing.T) {
 	if CodeOf(outer) != CodeUnauthorized {
 		t.Errorf("CodeOf = %v, want unauthorized", CodeOf(outer))
 	}
-	if HTTPStatusOf(outer) != http.StatusUnauthorized {
-		t.Errorf("HTTPStatusOf = %d", HTTPStatusOf(outer))
+	if CodeOf(outer).HTTPStatus() != http.StatusUnauthorized {
+		t.Errorf("HTTPStatus = %d", CodeOf(outer).HTTPStatus())
 	}
 
 	if CodeOf(nil) != CodeOK {

@@ -22,6 +22,7 @@ import (
 	"github.com/lxsrcs/lx-source-next/pkg/middleware"
 	"github.com/lxsrcs/lx-source-next/pkg/middleware/access"
 	"github.com/lxsrcs/lx-source-next/pkg/middleware/apikey"
+	"github.com/lxsrcs/lx-source-next/pkg/middleware/cors"
 	"github.com/lxsrcs/lx-source-next/pkg/middleware/ratelimit"
 	"github.com/lxsrcs/lx-source-next/pkg/middleware/recoverer"
 	"github.com/lxsrcs/lx-source-next/pkg/middleware/reqlog"
@@ -46,6 +47,8 @@ type Deps struct {
 	Sources source.Registry
 	// Options 决定装哪些中间件。
 	Options Options
+	// SourcesEnabled 判断某来源当前是否启用（随热更即时生效）；nil 表示全开。
+	SourcesEnabled func(code string) bool
 }
 
 // Options 控制中间件的装配。
@@ -62,16 +65,8 @@ type Options struct {
 	EnableApiKey bool
 	// EnableRateLimit 限流。
 	EnableRateLimit bool
-}
-
-// DefaultOptions 默认全开（生产形态）。
-func DefaultOptions() Options {
-	return Options{
-		EnableRequestLog: true,
-		EnableAccess:     true,
-		EnableApiKey:     true,
-		EnableRateLimit:  true,
-	}
+	// EnableCors 加跨域响应头（给网页端直接调用）。
+	EnableCors bool
 }
 
 // App 是装配完成的应用。
@@ -115,6 +110,10 @@ func (a *App) chain() middleware.Chain {
 
 	// 解析客户端地址必须最靠前：后续策略都依赖它。
 	c = c.Append(clientAddr(opt))
+
+	if opt.EnableCors {
+		c = c.Append(cors.New())
+	}
 
 	if opt.EnableRequestLog {
 		c = c.Append(reqlog.New(logger))
@@ -173,6 +172,8 @@ func clientAddr(opt Options) middleware.Middleware {
 // routes 注册路由。Go 1.22 的 ServeMux 支持方法与通配符，无需框架。
 func (a *App) routes() http.Handler {
 	mux := http.NewServeMux()
+	// 根路径：非 ApiOnly 时给一个极简状态页，ApiOnly 时按 404 处理
+	mux.HandleFunc("GET /{$}", a.handleIndex)
 	mux.HandleFunc("GET /api/v0/ping", a.handlePing)
 	mux.HandleFunc("GET /api/v1/status", a.handleStatus)
 	mux.HandleFunc("GET /api/v1/search", a.handleSearch)
@@ -196,11 +197,13 @@ func (a *App) handlePing(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleStatus(w http.ResponseWriter, r *http.Request) {
-	snap := a.deps.Config.Current()
 	body := map[string]any{
-		"uptime":        time.Since(a.startedAt).Round(time.Second).String(),
-		"configVersion": snap.Version,
-		"configLoaded":  snap.LoadedAt.Format(time.RFC3339),
+		"uptime": time.Since(a.startedAt).Round(time.Second).String(),
+	}
+	// 配置可能在启动瞬间还没有快照，这里不能直接解引用
+	if snap := a.deps.Config.Current(); snap != nil {
+		body["configVersion"] = snap.Version
+		body["configLoaded"] = snap.LoadedAt.Format(time.RFC3339)
 	}
 	if a.deps.LogHub != nil {
 		body["logSubscribers"] = a.deps.LogHub.Subscribers()
@@ -300,6 +303,43 @@ func writeEvent(w io.Writer, rec logx.Record) {
 	_, _ = w.Write(b)
 	_, _ = io.WriteString(w, "\n\n")
 }
+
+// sourceEnabled 判断来源当前是否启用。
+func (a *App) sourceEnabled(code string) bool {
+	if a.deps.SourcesEnabled == nil {
+		return true
+	}
+	return a.deps.SourcesEnabled(code)
+}
+
+// handleIndex 是根路径页面。
+//
+// 本服务不带前端应用，这里只给一个自检页；ApiOnly 打开时直接 404，降低被扫风险。
+func (a *App) handleIndex(w http.ResponseWriter, r *http.Request) {
+	if a.dynamic().Apis.ApiOnly {
+		httpx.Fail(w, apierr.New(apierr.CodeNotFound, "接口模式下不提供页面"))
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = io.WriteString(w, indexHTML)
+}
+
+// indexHTML 是自检页内容（纯静态，不带任何用户输入）。
+const indexHTML = `<!doctype html>
+<meta charset="utf-8">
+<title>lx-source-next</title>
+<style>body{font:14px/1.7 system-ui;margin:2rem auto;max-width:46rem;padding:0 1rem}</style>
+<h1>lx-source-next</h1>
+<p>服务在运行。可用接口：</p>
+<ul>
+<li><code>/api/v0/ping</code> 健康检查</li>
+<li><code>/api/v0/url/{source}/{id}/{quality}</code> 取播放直链</li>
+<li><code>/api/v0/lrc/{source}/{id}</code> 取歌词</li>
+<li><code>/api/v0/lx-script.js</code> 自定义源脚本</li>
+<li><code>/api/v1/search?pt=&amp;q=</code> 搜索</li>
+<li><code>/api/v1/status</code> 运行状态</li>
+</ul>
+`
 
 // Run 启动服务并在 ctx 结束时优雅关闭。
 func (a *App) Run(ctx context.Context, addr string) error {

@@ -107,15 +107,6 @@ func (g *Guard) Check(addr netip.Addr) Decision {
 	return Decision{Allow: !g.strict, Trusted: false}
 }
 
-// CheckString 是 Check 的字符串入口，解析失败一律拒绝。
-func (g *Guard) CheckString(s string) Decision {
-	addr, err := netip.ParseAddr(strings.TrimSpace(s))
-	if err != nil {
-		return Decision{Allow: false}
-	}
-	return g.Check(addr)
-}
-
 // Len 返回两边的条目数。
 func (g *Guard) Len() (allow, deny int) {
 	if g == nil {

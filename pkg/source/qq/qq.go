@@ -8,7 +8,6 @@
 package qq
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -20,21 +19,16 @@ import (
 	"time"
 
 	"github.com/lxsrcs/lx-source-next/pkg/apierr"
-	"github.com/lxsrcs/lx-source-next/pkg/quality"
 	"github.com/lxsrcs/lx-source-next/pkg/source"
 )
 
 const (
 	// DefaultSearchBase 是搜索接口根地址。
 	DefaultSearchBase = "https://c.y.qq.com"
-	// DefaultVkeyURL 是 vkey 接口地址。
-	DefaultVkeyURL = "https://u.y.qq.com/cgi-bin/musicu.fcg"
 	// DefaultUA 默认请求标识。
 	DefaultUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 	// DefaultReferer 是必需的来源标识。
 	DefaultReferer = "https://y.qq.com/"
-	// guid 是固定设备号，匿名请求用。
-	guid = "10000"
 	// maxBody 响应体读取上限。
 	maxBody = 8 << 20
 )
@@ -48,10 +42,16 @@ type Doer interface {
 type Config struct {
 	Src        string
 	SearchBase string
-	VkeyURL    string
 	UserAgent  string
 	Referer    string
 	Expire     time.Duration
+	// Cookie 是登录态凭据（含 uin 与 qqmusic_key）。
+	Cookie string
+	// MusicURL 是带签名的取链接口；留空用内置默认值。
+	MusicURL string
+	// Uin / Ukey 是登录态里的 QQ 号与会话票据；留空时匿名。
+	Uin  string
+	Ukey string
 }
 
 // Client 实现 source.Source 与 source.Searcher。
@@ -74,9 +74,6 @@ func New(cfg Config, doer Doer) *Client {
 	if cfg.SearchBase == "" {
 		cfg.SearchBase = DefaultSearchBase
 	}
-	if cfg.VkeyURL == "" {
-		cfg.VkeyURL = DefaultVkeyURL
-	}
 	if cfg.UserAgent == "" {
 		cfg.UserAgent = DefaultUA
 	}
@@ -95,81 +92,30 @@ func New(cfg Config, doer Doer) *Client {
 // Src 实现 source.Source。
 func (c *Client) Src() string { return c.cfg.Src }
 
-// fileConfig 是音质 → (filename 前缀, 后缀) 的映射。
+// URL 实现 source.Source：走带签名的 musics.fcg 取直链。
 //
-// 服务端对 320k 的匿名请求常常不响应，listen1 也据此默认降到 128k。
-var fileConfig = map[string]struct{ prefix, ext, canonical string }{
-	quality.Q128:    {"M500", ".mp3", quality.Q128},
-	quality.Q320:    {"M800", ".mp3", quality.Q320},
-	quality.QFlac:   {"F000", ".flac", quality.QFlac},
-	quality.QFlac24: {"F000", ".flac", quality.QFlac24},
-}
-
-// URL 实现 source.Source：用 songmid 取直链。
+// 匿名只对免费曲目给完整链接；付费曲目退到试听片段（见 vkey.go）。
 func (c *Client) URL(ctx context.Context, id, q string) (source.LinkInfo, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return source.LinkInfo{}, apierr.New(apierr.CodeBadRequest, "缺少 QQ 音乐 songmid")
 	}
-	q = strings.TrimSpace(q)
-	if q == "" {
-		q = quality.Q128
-	}
-	canonical, ok := quality.Canonical(q)
-	if !ok {
-		canonical = quality.Q128
-	}
-	fc, ok := fileConfig[canonical]
-	if !ok {
-		// 不支持的音质回落到 128k，和服务端行为一致
-		fc = fileConfig[quality.Q128]
-		canonical = quality.Q128
-	}
-
-	// filename 的格式是 前缀 + mid + mid + 后缀，两个 mid 都要有
-	filename := fc.prefix + id + id + fc.ext
-
-	body := map[string]any{
-		"req_1": map[string]any{
-			"module": "vkey.GetVkeyServer",
-			"method": "CgiGetVkey",
-			"param": map[string]any{
-				"filename":  []string{filename},
-				"guid":      guid,
-				"songmid":   []string{id},
-				"songtype":  []int{0},
-				"uin":       "0",
-				"loginflag": 1,
-				"platform":  "20",
-			},
-		},
-		"loginUin": "0",
-		"comm": map[string]any{
-			"uin":    "0",
-			"format": "json",
-			"ct":     24,
-			"cv":     0,
-		},
-	}
-
-	raw, err := c.postJSON(ctx, c.cfg.VkeyURL, body)
-	if err != nil {
-		return source.LinkInfo{}, err
-	}
-	link, err := ParseVkey(raw)
-	if err != nil {
-		return source.LinkInfo{}, apierr.Wrap(apierr.CodeUnavailable, "qq: 取直链失败", err)
-	}
-	return source.LinkInfo{
-		Qual: canonical,
-		Expi: c.now().Add(c.cfg.Expire).Unix(),
-		Link: link,
-	}, nil
+	return c.urlTx(ctx, id, q)
 }
 
 // ParseVkey 从 vkey 响应里拼出直链。
 func ParseVkey(body []byte) (string, error) {
 	var resp struct {
+		Req0 struct {
+			Code int `json:"code"`
+			Data struct {
+				Sip        []string `json:"sip"`
+				Midurlinfo []struct {
+					Purl   string `json:"purl"`
+					Result int    `json:"result"`
+				} `json:"midurlinfo"`
+			} `json:"data"`
+		} `json:"req_0"`
 		Req1 struct {
 			Code int `json:"code"`
 			Data struct {
@@ -185,17 +131,24 @@ func ParseVkey(body []byte) (string, error) {
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return "", fmt.Errorf("qq: 响应不是 JSON: %w", err)
 	}
-	if len(resp.Req1.Data.Midurlinfo) == 0 {
-		return "", fmt.Errorf("qq: 响应里没有 midurlinfo（code=%d）", resp.Req1.Code)
+	// musics.fcg 用 req_0，旧接口用 req_1，两种都兼容
+	data := resp.Req0.Data
+	code := resp.Req0.Code
+	if len(data.Midurlinfo) == 0 {
+		data = resp.Req1.Data
+		code = resp.Req1.Code
 	}
-	info := resp.Req1.Data.Midurlinfo[0]
+	if len(data.Midurlinfo) == 0 {
+		return "", fmt.Errorf("qq: 响应里没有 midurlinfo（code=%d）", code)
+	}
+	info := data.Midurlinfo[0]
 	if info.Purl == "" {
 		return "", fmt.Errorf("qq: purl 为空（result=%d，通常是 VIP 或需要登录）", info.Result)
 	}
-	if len(resp.Req1.Data.Sip) == 0 {
+	if len(data.Sip) == 0 {
 		return "", fmt.Errorf("qq: 响应里没有 sip 服务器地址")
 	}
-	return resp.Req1.Data.Sip[0] + info.Purl, nil
+	return data.Sip[0] + info.Purl, nil
 }
 
 // Lyric 实现 source.Source。
@@ -304,24 +257,12 @@ func ParseSearch(body []byte) (source.SearchResult, error) {
 	return out, nil
 }
 
-// postJSON 发一个 JSON POST。
-func (c *Client) postJSON(ctx context.Context, u string, payload any) ([]byte, error) {
-	b, err := json.Marshal(payload)
-	if err != nil {
-		return nil, apierr.Wrap(apierr.CodeInternal, "qq: 序列化请求失败", err)
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, bytes.NewReader(b))
-	if err != nil {
-		return nil, apierr.Wrap(apierr.CodeInternal, "qq: 构造请求失败", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	c.setHeaders(req)
-	return c.do(req)
-}
-
 func (c *Client) setHeaders(req *http.Request) {
 	req.Header.Set("User-Agent", c.cfg.UserAgent)
 	req.Header.Set("Referer", c.cfg.Referer)
+	if c.cfg.Cookie != "" {
+		req.Header.Set("Cookie", c.cfg.Cookie)
+	}
 }
 
 func (c *Client) do(req *http.Request) ([]byte, error) {
@@ -334,4 +275,37 @@ func (c *Client) do(req *http.Request) ([]byte, error) {
 		return nil, apierr.Newf(apierr.CodeUnavailable, "qq: 上游返回 HTTP %d", resp.StatusCode)
 	}
 	return io.ReadAll(io.LimitReader(resp.Body, maxBody))
+}
+
+// cookieUIN 从 Cookie 里取 QQ 号，取不到返回 "0"（匿名）。
+//
+// QQ 的 Cookie 里是 uin=o0123456789 这种带 o 前缀的写法，接口要的是纯数字。
+func cookieUIN(cookie string) string {
+	for _, part := range strings.Split(cookie, ";") {
+		part = strings.TrimSpace(part)
+		for _, key := range []string{"uin=", "p_uin=", "p_skey_uin="} {
+			if !strings.HasPrefix(part, key) {
+				continue
+			}
+			v := strings.TrimPrefix(part, key)
+			v = strings.TrimPrefix(v, "o")
+			if v != "" && isDigits(v) {
+				return v
+			}
+		}
+	}
+	return "0"
+}
+
+// isDigits 判断字符串是否为纯数字。
+func isDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < 0x30 || s[i] > 0x39 {
+			return false
+		}
+	}
+	return true
 }

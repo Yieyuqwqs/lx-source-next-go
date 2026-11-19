@@ -42,7 +42,7 @@ func EnsureFiles(dir string) ([]string, error) {
 			return created, fmt.Errorf("config: 检查 %s: %w", path, err)
 		}
 
-		data, err := templates.ReadFile("templates/" + name)
+		data, err := Template(name)
 		if err != nil {
 			return created, fmt.Errorf("config: 读取内置模板 %s: %w", name, err)
 		}

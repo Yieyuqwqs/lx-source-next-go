@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/lxsrcs/lx-source-next/pkg/apierr"
+	cachepolicy "github.com/lxsrcs/lx-source-next/pkg/cache/policy"
 	"github.com/lxsrcs/lx-source-next/pkg/httpx"
 )
 
@@ -156,12 +157,12 @@ func (a *App) handleFile(w http.ResponseWriter, r *http.Request) {
 	h.Set("Content-Type", contentType(r.PathValue("name")))
 	h.Set("ETag", etag(st.Size(), st.ModTime()))
 	h.Set("X-Content-Type-Options", "nosniff")
-	// 有效期取自当前配置；为 0 时不缓存，交给客户端每次回源
-	if ttl := a.dynamic().Data.TTL; ttl > 0 {
-		h.Set("Cache-Control", "public, max-age="+strconv.Itoa(ttl))
-	} else {
-		h.Set("Cache-Control", "no-cache")
+	// 有效期与缓存策略层保持一致：配置为 0 时用策略的默认 TTL
+	ttl := a.dynamic().Data.TTL
+	if ttl <= 0 {
+		ttl = int(cachepolicy.DefaultTTL / time.Second)
 	}
+	h.Set("Cache-Control", "public, max-age="+strconv.Itoa(ttl))
 
 	// ServeContent 负责 Range / If-Range / If-None-Match / If-Modified-Since，
 	// 并在这些条件下返回 206 / 304。

@@ -58,19 +58,6 @@ func DecodeQRC(data []byte) (string, error) {
 	return string(out), nil
 }
 
-// ParseQRCBytes 解密并解析 QRC 二进制。
-func ParseQRCBytes(data []byte) (*Kara, error) {
-	doc, err := DecodeQRC(data)
-	if err != nil {
-		return nil, err
-	}
-	content, err := ExtractQRCLyric(doc)
-	if err != nil {
-		return nil, err
-	}
-	return ParseQRCContent(content)
-}
-
 // ExtractQRCLyric 从 QRC 的 XML 里取出第一条逐字歌词正文。
 // 兼容 LyricContent 作为属性与作为子节点两种写法。
 func ExtractQRCLyric(doc string) (string, error) {

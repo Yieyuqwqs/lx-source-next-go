@@ -126,3 +126,13 @@ func (r *Reader) Get(ctx context.Context, key string, m Meta, load ReadFunc) ([]
 	})
 	return data, err
 }
+
+// Invalidate 丢弃某个键的缓存。
+//
+// 用于「内容本身带有效期」的场景：读到过期数据时把它作废，下一次自然回源。
+func (r *Reader) Invalidate(ctx context.Context, key string) error {
+	if r.c == nil {
+		return nil
+	}
+	return r.c.Del(ctx, key)
+}

@@ -36,6 +36,10 @@ type Bootstrap struct {
 	DNSServer string `toml:"DNSServer"`
 	// Kw 是酷我来源的上游参数。
 	Kw KwConf `toml:"Kw"`
+	// Wy 是网易云的取链参数。
+	Wy WyConf `toml:"Wy"`
+	// Tx 是 QQ 音乐的取链参数。
+	Tx TxConf `toml:"Tx"`
 }
 
 // DefaultBootstrap 返回默认启动配置。
@@ -47,6 +51,7 @@ func DefaultBootstrap() Bootstrap {
 		ReloadInterval: "2s",
 		CacheDir:       "data/cache",
 		Kw:             KwConf{Strategy: "anti"},
+		Wy:             WyConf{Agg: false},
 	}
 }
 
@@ -110,4 +115,35 @@ type KwConf struct {
 	BaseURL string `toml:"BaseURL"`
 	// Key mobi 策略用的 8 字节 DES 密钥。
 	Key string `toml:"Key"`
+}
+
+// WyConf 是网易云来源的参数。
+//
+// 官方接口匿名请求只返回 url:null，取直链必须借第三方签名服务；
+// 这个开关就是「要不要借」——关掉就只走官方接口，行为与未接入时一致。
+//
+// 默认关闭的依据（实测）：公共签名服务从部分网络访问时通时不通
+// （Cloudflare 握手失败/超时），默认打开等于给每次取链加几秒不确定延迟。
+// 自建一个 Meting / 签名服务后，把 AggURL 指过去再打开 Agg 才稳。
+type WyConf struct {
+	// Agg 是否借第三方签名服务取直链；默认 false。
+	Agg bool `toml:"Agg"`
+	// AggURL 自定义服务地址；留空用内置默认值。
+	AggURL string `toml:"AggURL"`
+	// Cookie 是网易云登录态（形如 "MUSIC_U=xxx"），留空为匿名。
+	//
+	// 匿名取链只能借第三方；带上自己的 Cookie 后官方接口直接可用，最稳。
+	Cookie string `toml:"Cookie"`
+}
+
+// TxConf 是 QQ 音乐的取链参数。
+//
+// 匿名请求形状再对也拿不到 purl（服务端只回 104003 / 空串），
+// 必须带上登录态 Cookie 才能取到真实地址。
+type TxConf struct {
+	// Cookie 是 QQ 音乐登录态（含 uin 与 qqmusic_key）。
+	Cookie string `toml:"Cookie"`
+	// Uin / Ukey 是从 Cookie 里取出的 QQ 号与会话票据；填了才能拿 VIP 音质。
+	Uin  string `toml:"Uin"`
+	Ukey string `toml:"Ukey"`
 }

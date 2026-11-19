@@ -14,15 +14,31 @@ const searchBody = `{"code":200,"result":{"songCount":100,"songs":[
 
 const lyricBody = `{"lrc":{"lyric":"[00:00.000] 作词 : 黄家驹\n[00:01.000] 作曲 : 黄家驹"},"tlyric":{"lyric":"[00:00.000] Lyrics : Wong Ka Kui"},"klyric":{"lyric":"[00:00.000]<0,36>作<36,36>词"}}`
 
+// fakeDoer 记录请求；last 保存最近一次请求体，seq 用于按序返回不同响应。
 type fakeDoer struct {
 	reqs []*http.Request
 	body string
+	seq  []string
+	last []byte
+	n    int
 }
 
 func (f *fakeDoer) Do(req *http.Request) (*http.Response, error) {
 	f.reqs = append(f.reqs, req)
+	if req.Body != nil {
+		b, err := io.ReadAll(req.Body)
+		if err != nil {
+			return nil, err
+		}
+		f.last = b
+	}
+	body := f.body
+	if f.n < len(f.seq) {
+		body = f.seq[f.n]
+	}
+	f.n++
 	return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header),
-		Body: io.NopCloser(strings.NewReader(f.body))}, nil
+		Body: io.NopCloser(strings.NewReader(body))}, nil
 }
 
 func TestParseSearch(t *testing.T) {
@@ -108,11 +124,13 @@ func TestLyricRequest(t *testing.T) {
 }
 
 // TestURLEapi 校验 eapi 取链的请求形状与结果解析。
+//
+// 直接调 urlEapi：URL() 的常规顺序是 weapi → 聚合 → eapi。
 func TestURLEapi(t *testing.T) {
 	d := &fakeDoer{body: "{\"data\":[{\"id\":347230,\"url\":\"http://m8.music.126.net/a.mp3\",\"br\":320000,\"code\":200}]}"}
 	c := New(Config{EapiBase: "https://wy.invalid"}, d)
 
-	li, err := c.URL(context.Background(), "347230", "320k")
+	li, err := c.urlEapi(context.Background(), "347230", "320k")
 	if err != nil {
 		t.Fatalf("URL: %v", err)
 	}
@@ -150,7 +168,7 @@ func TestURLEapi(t *testing.T) {
 func TestURLNullURL(t *testing.T) {
 	d := &fakeDoer{body: "{\"data\":[{\"id\":1,\"url\":null,\"br\":0,\"code\":404}]}"}
 	c := New(Config{EapiBase: "https://wy.invalid"}, d)
-	_, err := c.URL(context.Background(), "1", "128k")
+	_, err := c.urlEapi(context.Background(), "1", "128k")
 	if err == nil {
 		t.Fatal("url 为 null 应报错")
 	}

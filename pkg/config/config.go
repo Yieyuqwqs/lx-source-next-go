@@ -142,6 +142,7 @@ func Default() *Dynamic {
 			Mg: SrcFlag{Enable: true},
 			Kw: SrcFlag{Enable: true},
 			Kg: SrcFlag{Enable: true},
+			Tx: SrcFlag{Enable: true},
 		},
 		Data: Data{Mode: 1, Type: 0},
 		Errs: Errs{Expi: 120},
@@ -185,6 +186,9 @@ func (d *Dynamic) Validate() error {
 	}
 	if d.Data.Mode < 0 || d.Data.Mode > 2 {
 		return fmt.Errorf("config: Data.Mode 只能是 0/1/2，当前 %d", d.Data.Mode)
+	}
+	if d.Data.Type != 0 {
+		return fmt.Errorf("config: Data.Type 目前只支持 0（本地文件缓存），当前 %d", d.Data.Type)
 	}
 	if d.Errs.Expi < 0 {
 		return fmt.Errorf("config: Errs.Expi 不能为负，当前 %d", d.Errs.Expi)

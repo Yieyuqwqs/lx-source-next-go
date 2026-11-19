@@ -147,8 +147,3 @@ func CodeOf(err error) Code {
 	}
 	return CodeInternal
 }
-
-// HTTPStatusOf 返回错误对应的 HTTP 状态码。
-func HTTPStatusOf(err error) int {
-	return CodeOf(err).HTTPStatus()
-}

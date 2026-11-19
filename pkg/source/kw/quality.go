@@ -22,45 +22,7 @@ var brTable = map[string]string{
 	quality.QFlac24: brFlac24,
 }
 
-// reverseBR 是 br → 规范音质。
-var reverseBR = map[string]string{
-	br128:    quality.Q128,
-	br192:    quality.Q192,
-	br320:    quality.Q320,
-	brFlac:   quality.QFlac,
-	brFlac24: quality.QFlac24,
-}
-
-// BitrateFor 把任意音质写法映射成酷我的 br 参数，同时返回规范音质名。
-func BitrateFor(q string) (br, canonical string, ok bool) {
-	c, ok := quality.Canonical(q)
-	if !ok {
-		return "", "", false
-	}
-	br, ok = brTable[c]
-	if !ok {
-		return "", "", false
-	}
-	return br, c, true
-}
-
-// QualityFromBitrate 把上游返回的 br 反解成规范音质名。
-func QualityFromBitrate(br string) (string, bool) {
-	c, ok := reverseBR[br]
-	return c, ok
-}
-
 // SupportedQualities 返回酷我支持的规范音质，按从低到高排列。
 func SupportedQualities() []string {
 	return []string{quality.Q128, quality.Q192, quality.Q320, quality.QFlac, quality.QFlac24}
-}
-
-// ResolveQuality 把请求音质回落到酷我真正支持的档位。
-func ResolveQuality(req string) (br, canonical string, ok bool) {
-	c, ok := quality.Resolve(req, SupportedQualities())
-	if !ok {
-		return "", "", false
-	}
-	br, ok = brTable[c]
-	return br, c, ok
 }

@@ -28,6 +28,8 @@ type Meta struct {
 	// Source 平台二字码，如 wy / kg。
 	Source string
 	// Quality 音质名，可能是别名写法，由策略层归一化。
+	//
+	// 留空表示该资源没有音质概念（例如歌词），策略层按「可缓存」处理。
 	Quality string
 }
 

@@ -75,14 +75,8 @@ func TestIPv4Mapped(t *testing.T) {
 	}
 }
 
-func TestCheckStringAndLen(t *testing.T) {
+func TestLenAndNilGuard(t *testing.T) {
 	g := newGuard(t, Config{Allow: []string{"127.0.0.1", "192.168.0.0/16"}})
-	if d := g.CheckString("127.0.0.1"); !d.Allow || !d.Trusted {
-		t.Errorf("CheckString = %+v", d)
-	}
-	if d := g.CheckString("不是IP"); d.Allow {
-		t.Error("非法地址应拒绝")
-	}
 	a, b := g.Len()
 	if a != 2 || b != 0 {
 		t.Errorf("Len = %d,%d", a, b)

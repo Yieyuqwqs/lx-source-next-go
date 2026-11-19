@@ -49,6 +49,16 @@ type Config struct {
 	UserAgent string
 	Referer   string
 	Expire    time.Duration
+	// Cookie 是登录态凭据（形如 "MUSIC_U=xxx"），留空表示匿名。
+	//
+	// 匿名时官方接口只回 url:null；带上自己的 Cookie 就能直接拿到
+	// 真实地址（含无损），这是最稳的一条路，不依赖任何第三方。
+	Cookie string
+	// AggURL 是第三方签名服务地址；非空时取直链优先走它。
+	//
+	// 官方接口在未登录时只返回 url:null，匿名部署只能借这条路拿地址；
+	// 留空则退回只走官方接口（行为与未接入聚合时一致）。
+	AggURL string
 }
 
 // Client 实现 source.Source 与 source.Searcher。
@@ -92,15 +102,49 @@ func New(cfg Config, doer Doer) *Client {
 // Src 实现 source.Source。
 func (c *Client) Src() string { return c.cfg.Src }
 
-// URL 实现 source.Source：走 eapi 加密接口取直链。
+// URL 实现 source.Source：三条通道依次尝试（weapi → 聚合 → eapi）。
 //
-// 把 {"ids":"[id]","br":br} 用 eapi 加密后以表单 POST，
-// 响应里 data[0].url 即直链；url 为 null 表示需要会员或无版权，如实报错。
+// weapi 是匿名可用的老接口，免费曲目能直接拿到 128k 地址；
+// 聚合服务需要可用的第三方签名；eapi 需要登录态 Cookie。
+// 三条都不通时，把各自的原因一起带回，避免只看到一句「取直链失败」。
 func (c *Client) URL(ctx context.Context, id, q string) (source.LinkInfo, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return source.LinkInfo{}, apierr.New(apierr.CodeBadRequest, "缺少网易云歌曲 ID")
 	}
+
+	var reasons []string
+
+	if li, err := c.urlWeapi(ctx, id, q); err == nil {
+		return li, nil
+	} else {
+		reasons = append(reasons, "weapi: "+err.Error())
+	}
+
+	if c.cfg.AggURL != "" {
+		if li, err := c.urlAgg(ctx, id, q); err == nil {
+			return li, nil
+		} else {
+			reasons = append(reasons, "聚合: "+err.Error())
+		}
+	}
+
+	if li, err := c.urlEapi(ctx, id, q); err == nil {
+		return li, nil
+	} else {
+		reasons = append(reasons, "eapi: "+err.Error())
+	}
+
+	return source.LinkInfo{}, apierr.Wrap(apierr.CodeUnavailable,
+		"wy: 所有取链通道都没拿到直链",
+		errors.New(strings.Join(reasons, " | ")))
+}
+
+// urlEapi 走官方 eapi 加密接口取直链。
+//
+// 把 {"ids":"[id]","br":br} 用 eapi 加密后以表单 POST，
+// 响应里 data[0].url 即直链；url 为 null 表示需要会员或无版权，如实报错。
+func (c *Client) urlEapi(ctx context.Context, id, q string) (source.LinkInfo, error) {
 	br, canonical := bitrateFor(q)
 
 	// 用结构体而不是 map：字段顺序固定，便于黄金测试
@@ -123,8 +167,8 @@ func (c *Client) URL(ctx context.Context, id, q string) (source.LinkInfo, error)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("User-Agent", c.cfg.UserAgent)
 	req.Header.Set("Referer", c.cfg.Referer)
-	// 这个 cookie 是接口要求的环境标识，不是登录态
-	req.Header.Set("Cookie", "os=pc")
+	// 环境标识必须有；配了登录态就一起带上，那样才拿得到真实地址
+	req.Header.Set("Cookie", c.cookieHeader())
 
 	body, err := c.post(req)
 	if err != nil {
@@ -272,6 +316,7 @@ func (c *Client) get(ctx context.Context, path string, params url.Values) ([]byt
 	}
 	req.Header.Set("User-Agent", c.cfg.UserAgent)
 	req.Header.Set("Referer", c.cfg.Referer)
+	req.Header.Set("Cookie", c.cookieHeader())
 	return c.post(req)
 }
 
@@ -360,4 +405,17 @@ func ParseLyric(body []byte) (source.LyricInfo, error) {
 		TLyric:  resp.TLyric.Lyric,
 		LxLyric: resp.KLyric.Lyric, // klyric 是逐字歌词，正好对应 lxlyric
 	}, nil
+}
+
+// cookieHeader 组装请求要用的 Cookie：
+// 环境标识 os=pc 永远带上；配置了登录态就拼在前面（同名时以配置为准）。
+func (c *Client) cookieHeader() string {
+	ck := strings.TrimSpace(c.cfg.Cookie)
+	if ck == "" {
+		return "os=pc"
+	}
+	if strings.Contains(ck, "os=") {
+		return ck
+	}
+	return ck + "; os=pc"
 }

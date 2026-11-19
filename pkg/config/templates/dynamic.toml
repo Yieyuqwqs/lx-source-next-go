@@ -34,10 +34,14 @@ Enable = true
 [Srcs.Kg]
 Enable = true
 
+# QQ 音乐（匿名仅免费曲目；要完整音质在 bootstrap 里填 [Tx] Uin/Ukey）
+[Srcs.Tx]
+Enable = true
+
 [Data]
 # 0=禁用 1=安全模式 2=极速模式
 Mode = 1
-# 0=本地
+# 0=本地文件（目前只支持 0）
 Type = 0
 # 缓存有效期（秒）；0 表示用默认值 1 小时
 TTL = 3600
@@ -48,13 +52,16 @@ TTL = 3600
 ExcP = false
 # 注意：列表里没有的平台不会被缓存。
 # mock 是本地验证用的假来源，验证缓存链路时先留着；接真实平台后可删。
-Plat = ['wy', 'mg', 'kw', 'kg', 'mock']
+Plat = ['wy', 'mg', 'kw', 'kg', 'tx', 'mock']
 # 音质列表是否为排除语义
 ExcQ = false
 Qual = ['128k', '192k', '320k', 'flac', 'flac24bit']
 # 是否缓存特殊音质（temp 试听 / orig 原声）
 AllowSpecial = false
 
+# 取链失败时的兜底：ErrMp3 非空就给客户端回 302 到这条音频
 [Errs]
+# 错误音频的缓存秒数（<=0 时回 no-store）
 Expi = 120
+# 自定义错误音频地址；留空则按普通 JSON 错误返回
 ErrMp3 = ''

@@ -25,7 +25,7 @@
 └───────────────────────────┬──────────────────────────────────┘
                             │
 ┌───────────────────────────▼──────────────────────────────────┐
-│  pkg/apierr  pkg/ipguard  pkg/quality  pkg/balancer          │
+│  pkg/apierr  pkg/ipguard  pkg/quality                        │
 │  pkg/logx    pkg/lrcutil                                     │
 │  纯领域：无 HTTP、无 IO 副作用、可单独测试                    │
 └──────────────────────────────────────────────────────────────┘
@@ -120,7 +120,6 @@ Limiter: redis.New(redis.Config{Addr: "..."}),
 | 启动配置 | `config.Bootstrap` 值拷贝 | 进程 |
 | 动态配置 | `config.Holder` 内的 `atomic.Pointer` | 进程，可换 |
 | 限流计数 | `ratelimit.Memory` 实例 | 进程 |
-| 熔断状态 | `balancer.Breaker` 实例 | 进程 |
 | 日志环 | `logx.Hub` 实例 | 进程 |
 | 白名单编译缓存 | `access.compiler` 实例 | 进程，随配置变 |
 
@@ -156,7 +155,6 @@ pkg/httpx/             响应信封、错误落盘、客户端 IP
 pkg/apierr/            错误码唯一真源
 pkg/ipguard/           netip 黑白名单
 pkg/quality/           音质别名与回落
-pkg/balancer/          账号池熔断
 pkg/logx/              slog → SSE 扇出 + 脱敏
 pkg/lrcutil/           歌词五格式
 ```

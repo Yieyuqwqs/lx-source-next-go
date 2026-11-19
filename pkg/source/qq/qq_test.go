@@ -2,7 +2,6 @@ package qq
 
 import (
 	"context"
-	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
@@ -12,7 +11,9 @@ import (
 type fakeDoer struct {
 	reqs []*http.Request
 	body []byte
+	seq  [][]byte
 	last []byte
+	n    int
 }
 
 func (f *fakeDoer) Do(req *http.Request) (*http.Response, error) {
@@ -21,8 +22,13 @@ func (f *fakeDoer) Do(req *http.Request) (*http.Response, error) {
 		b, _ := io.ReadAll(req.Body)
 		f.last = b
 	}
+	body := f.body
+	if f.n < len(f.seq) {
+		body = f.seq[f.n]
+	}
+	f.n++
 	return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header),
-		Body: io.NopCloser(strings.NewReader(string(f.body)))}, nil
+		Body: io.NopCloser(strings.NewReader(string(body)))}, nil
 }
 
 const vkeyBody = `{"code":0,"req_1":{"code":0,"data":{"sip":["http://aqqmusic.tc.qq.com/"],"midurlinfo":[{"songmid":"0027oMO61wWi55","filename":"M5000027oMO61wWi550027oMO61wWi55.mp3","purl":"M5000027oMO61wWi550027oMO61wWi55.mp3?vkey=ABC&guid=10000&uin=0&fromtag=66","result":0}]}}}`
@@ -54,37 +60,55 @@ func TestParseVkeyEmpty(t *testing.T) {
 	}
 }
 
-// TestURLRequestShape 校验请求体形状——这是 listen1 实现里最关键的两点：
-// 模块必须叫 req_1，且必须带 filename。
-func TestURLRequestShape(t *testing.T) {
-	d := &fakeDoer{body: []byte(vkeyBody)}
-	c := New(Config{VkeyURL: "https://qq.invalid/cgi-bin/musicu.fcg"}, d)
+// TestURLFlow 校验「曲目信息 → vkey」两步带签名的流程。
+func TestURLFlow(t *testing.T) {
+	infoBody := `{"req":{"code":0,"data":{"track_info":{"name":"晴天","file":{"media_mid":"003Qui1q2u1Zho"},"pay":{"pay_play":0},"vs":["064YyRNb0gDV4P"]}}}}`
+	vkeyOK := `{"req_0":{"code":0,"data":{"sip":["http://aqqmusic.tc.qq.com/"],"midurlinfo":[{"purl":"M500003Qui1q2u1Zho.mp3?vkey=ABC","result":0}]}}}`
+	d := &fakeDoer{seq: [][]byte{[]byte(infoBody), []byte(vkeyOK)}}
+	c := New(Config{MusicURL: "https://qq.invalid/musics.fcg"}, d)
 
-	if _, err := c.URL(context.Background(), "0027oMO61wWi55", "320k"); err != nil {
+	li, err := c.URL(context.Background(), "0039MnYb0qxYhV", "128k")
+	if err != nil {
 		t.Fatalf("URL: %v", err)
 	}
+	if li.Link != "http://aqqmusic.tc.qq.com/M500003Qui1q2u1Zho.mp3?vkey=ABC" {
+		t.Errorf("Link = %q", li.Link)
+	}
+	if li.Qual != "128k" {
+		t.Errorf("Qual = %q", li.Qual)
+	}
+	if len(d.reqs) != 2 {
+		t.Fatalf("应为信息 + vkey 两次请求，实际 %d 次", len(d.reqs))
+	}
+	for i, r := range d.reqs {
+		if !strings.Contains(r.URL.RawQuery, "sign=") {
+			t.Errorf("第 %d 个请求缺少 sign 参数: %s", i+1, r.URL.RawQuery)
+		}
+	}
+	// 第二次请求要带 req_0 与按 media_mid 拼的 filename
+	body := string(d.last)
+	if !strings.Contains(body, `"req_0"`) {
+		t.Errorf("vkey 请求体缺 req_0: %s", body)
+	}
+	if !strings.Contains(body, `M500003Qui1q2u1Zho.mp3`) {
+		t.Errorf("filename 未按 media_mid 拼接: %s", body)
+	}
+}
 
-	var req map[string]any
-	if err := json.Unmarshal(d.last, &req); err != nil {
-		t.Fatalf("请求体不是 JSON: %v", err)
+// TestURLTrialFallback 付费曲目降不到档位时退到试听片段。
+func TestURLTrialFallback(t *testing.T) {
+	infoBody := `{"req":{"code":0,"data":{"track_info":{"name":"晴天","file":{"media_mid":"003Qui1q2u1Zho"},"pay":{"pay_play":1},"vs":["064YyRNb0gDV4P"]}}}}`
+	empty := `{"req_0":{"code":0,"data":{"sip":[],"midurlinfo":[{"purl":"","result":104003}]}}}`
+	trial := `{"req_0":{"code":0,"data":{"sip":["http://aqqmusic.tc.qq.com/"],"midurlinfo":[{"purl":"RS02064YyRNb0gDV4P.mp3?vkey=ABC","result":0}]}}}`
+	d := &fakeDoer{seq: [][]byte{[]byte(infoBody), []byte(empty), []byte(empty), []byte(empty), []byte(empty), []byte(trial)}}
+	c := New(Config{MusicURL: "https://qq.invalid/musics.fcg"}, d)
+
+	li, err := c.URL(context.Background(), "0039MnYb0qxYhV", "flac24bit")
+	if err != nil {
+		t.Fatalf("URL: %v", err)
 	}
-	if _, ok := req["req_1"]; !ok {
-		t.Error("请求体必须使用 req_1 模块名")
-	}
-	if _, ok := req["req_0"]; ok {
-		t.Error("不应使用 req_0（服务端会返回 104003）")
-	}
-	param := req["req_1"].(map[string]any)["param"].(map[string]any)
-	fn, _ := param["filename"].([]any)
-	if len(fn) != 1 {
-		t.Fatalf("filename 必须传一个元素，实际 %v", param["filename"])
-	}
-	// 320k 用 M800 前缀，文件名是 前缀+mid+mid+后缀
-	if got := fn[0].(string); got != "M8000027oMO61wWi550027oMO61wWi55.mp3" {
-		t.Errorf("filename = %q", got)
-	}
-	if param["guid"] != "10000" {
-		t.Errorf("guid = %v", param["guid"])
+	if !strings.Contains(li.Link, "RS02") {
+		t.Errorf("应退到试听片段，Link = %q", li.Link)
 	}
 }
 

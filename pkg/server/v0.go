@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/lxsrcs/lx-source-next/pkg/apierr"
 	"github.com/lxsrcs/lx-source-next/pkg/cache"
@@ -68,6 +70,10 @@ func (a *App) handleV0(w http.ResponseWriter, r *http.Request) {
 		httpx.Fail(w, apierr.Newf(apierr.CodeNotFound, "未知来源 %q", code))
 		return
 	}
+	if !a.sourceEnabled(code) {
+		httpx.Fail(w, apierr.Newf(apierr.CodeUnavailable, "来源 %q 已在配置里停用", code))
+		return
+	}
 	id := r.PathValue("id")
 	quality := r.PathValue("quality")
 	jmp := r.URL.Query().Has("jmp")
@@ -101,22 +107,38 @@ func (a *App) v0URL(w http.ResponseWriter, r *http.Request, src source.Source, i
 		}
 	}
 	key := internalPrefix + src.Src() + "/" + id + "-" + orDefault(q, "default") + ".url"
-	raw, err := a.cachedJSON(r.Context(), key, cache.Meta{Source: src.Src(), Quality: q},
-		func(ctx context.Context) ([]byte, error) {
-			li, err := src.URL(ctx, id, quality)
-			if err != nil {
-				return nil, err
-			}
-			return json.Marshal(li)
-		})
+	load := func(ctx context.Context) ([]byte, error) {
+		li, err := src.URL(ctx, id, quality)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(li)
+	}
+	meta := cache.Meta{Source: src.Src(), Quality: q}
+	raw, err := a.cachedJSON(r.Context(), key, meta, load)
 	if err != nil {
-		httpx.Fail(w, err)
+		a.failWithErrorAudio(w, r, err)
 		return
 	}
 	var li source.LinkInfo
 	if err := json.Unmarshal(raw, &li); err != nil {
 		httpx.Fail(w, apierr.Wrap(apierr.CodeInternal, "缓存数据损坏", err))
 		return
+	}
+	// 缓存 TTL 与直链有效期是两件事：命中缓存也可能是一条已经过期的直链，
+	// 这里作废重取一次，避免把死链发给客户端。
+	if linkExpired(li) {
+		if err := a.invalidate(r.Context(), key); err != nil {
+			a.deps.Logger.Warn("作废过期直链缓存失败", "key", key, "err", err)
+		}
+		if raw, err = a.cachedJSON(r.Context(), key, meta, load); err != nil {
+			a.failWithErrorAudio(w, r, err)
+			return
+		}
+		if err := json.Unmarshal(raw, &li); err != nil {
+			httpx.Fail(w, apierr.Wrap(apierr.CodeInternal, "缓存数据损坏", err))
+			return
+		}
 	}
 	if jmp {
 		// 按文档：jmp 支持 url / mv / pic，出错时仍以 JSON 返回
@@ -133,7 +155,8 @@ func (a *App) v0URL(w http.ResponseWriter, r *http.Request, src source.Source, i
 // v0Lyric 处理取歌词。带 jmp 时直接吐出纯文本，便于浏览器/播放器直接使用。
 func (a *App) v0Lyric(w http.ResponseWriter, r *http.Request, src source.Source, id string, jmp bool) {
 	key := internalPrefix + src.Src() + "/" + id + ".lrc"
-	raw, err := a.cachedJSON(r.Context(), key, cache.Meta{Source: src.Src(), Quality: "lrc"},
+	// 歌词没有音质概念，Quality 留空即按「可缓存」处理
+	raw, err := a.cachedJSON(r.Context(), key, cache.Meta{Source: src.Src()},
 		func(ctx context.Context) ([]byte, error) {
 			li, err := src.Lyric(ctx, id)
 			if err != nil {
@@ -242,4 +265,33 @@ func writeAll(w http.ResponseWriter, parts ...string) {
 		}
 		_, _ = w.Write([]byte(p))
 	}
+}
+
+// linkExpired 判断直链是否已过期（留 30 秒余量，避免临界点把死链发出去）。
+func linkExpired(li source.LinkInfo) bool {
+	return li.Expi > 0 && time.Now().Unix() >= li.Expi-30
+}
+
+// invalidate 作废一个内部缓存键。
+func (a *App) invalidate(ctx context.Context, key string) error {
+	if a.deps.Cache == nil {
+		return nil
+	}
+	return a.deps.Cache.Invalidate(ctx, key)
+}
+
+// failWithErrorAudio 按 v0 约定处理取链失败：
+// 配置了错误音频就跳过去（客户端能继续播），否则按普通错误返回。
+func (a *App) failWithErrorAudio(w http.ResponseWriter, r *http.Request, err error) {
+	e := a.dynamic().Errs
+	if strings.TrimSpace(e.ErrMp3) != "" {
+		cc := "no-store"
+		if e.Expi > 0 {
+			cc = "public, max-age=" + strconv.Itoa(e.Expi)
+		}
+		w.Header().Set("Cache-Control", cc)
+		http.Redirect(w, r, e.ErrMp3, http.StatusFound)
+		return
+	}
+	httpx.Fail(w, err)
 }

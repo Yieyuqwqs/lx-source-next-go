@@ -33,6 +33,10 @@ func (a *App) handleSearch(w http.ResponseWriter, r *http.Request) {
 		httpx.Fail(w, apierr.Newf(apierr.CodeNotFound, "未知来源 %q", pt))
 		return
 	}
+	if !a.sourceEnabled(pt) {
+		httpx.Fail(w, apierr.Newf(apierr.CodeUnavailable, "来源 %q 已在配置里停用", pt))
+		return
+	}
 	searcher, ok := src.(source.Searcher)
 	if !ok {
 		httpx.Fail(w, apierr.Newf(apierr.CodeUnavailable, "来源 %q 不支持搜索", pt))

@@ -6,6 +6,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -20,6 +21,7 @@ import (
 	"github.com/lxsrcs/lx-source-next/pkg/server"
 	"github.com/lxsrcs/lx-source-next/pkg/source"
 	"github.com/lxsrcs/lx-source-next/pkg/source/kg"
+	"github.com/lxsrcs/lx-source-next/pkg/source/mg"
 	"github.com/lxsrcs/lx-source-next/pkg/source/kw"
 	"github.com/lxsrcs/lx-source-next/pkg/source/mock"
 	"github.com/lxsrcs/lx-source-next/pkg/source/qq"
@@ -56,10 +58,22 @@ func run() error {
 	if boot.Debug {
 		level = slog.LevelDebug
 	}
-	var sink slog.Handler = slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})
+	var out io.Writer = os.Stderr
 	if !boot.Console {
-		sink = slog.NewTextHandler(discard{}, &slog.HandlerOptions{Level: level})
+		out = io.Discard
 	}
+	// LogDir 非空时同时落盘：容器/Termux 里控制台日志容易被滚掉
+	if dir := boot.LogDir; dir != "" {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			fmt.Fprintln(os.Stderr, "创建日志目录失败:", err)
+		} else if f, err := os.OpenFile(filepath.Join(dir, "lxsrcs.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err != nil {
+			fmt.Fprintln(os.Stderr, "打开日志文件失败:", err)
+		} else {
+			defer f.Close()
+			out = io.MultiWriter(out, f)
+		}
+	}
+	sink := slog.NewTextHandler(out, &slog.HandlerOptions{Level: level})
 	hub := logx.NewHub(512)
 	logger := slog.New(hub.Handler(sink))
 	slog.SetDefault(logger)
@@ -125,11 +139,32 @@ func run() error {
 		"mock": mock.New(),
 		"kw":   kwSrc,
 		"kg":   kg.New(kg.Config{}, nil),
-		"wy":   wy.New(wy.Config{}, nil),
-		"tx":   qq.New(qq.Config{}, nil),
+		"mg":   mg.New(mg.Config{}, nil),
+		"wy":   wy.New(wy.Config{AggURL: wyAggURL(boot), Cookie: boot.Wy.Cookie}, nil),
+		"tx":   qq.New(qq.Config{Cookie: boot.Tx.Cookie, Uin: boot.Tx.Uin, Ukey: boot.Tx.Ukey}, nil),
 	}
 	logger.Info("已注册解析源", "codes", sources.Codes())
 	logger.Info(kwSrc.Describe())
+
+	// 每个源是否启用：读动态配置快照，改了立即生效
+	sourceEnabled := func(code string) bool {
+		s := holder.Dynamic().Srcs
+		switch code {
+		case "mock":
+			return true
+		case "kw":
+			return s.Kw.Enable
+		case "kg":
+			return s.Kg.Enable
+		case "wy":
+			return s.Wy.Enable
+		case "mg":
+			return s.Mg.Enable
+		case "tx":
+			return s.Tx.Enable
+		}
+		return false
+	}
 
 	// ---- 7. 装配应用：所有依赖显式注入 ----
 	app := server.New(server.Deps{
@@ -140,6 +175,8 @@ func run() error {
 		Cache:   cacheReader,
 		Files:   fileCache,
 		Sources: sources,
+		// 每个源是否启用交给动态配置决定，改了立即生效
+		SourcesEnabled: sourceEnabled,
 		Options: server.Options{
 			TrustProxy:       boot.Proxy,
 			RealIPHeaders:    boot.RealIPHeaders(),
@@ -147,6 +184,7 @@ func run() error {
 			EnableAccess:     true,
 			EnableApiKey:     true,
 			EnableRateLimit:  true,
+			EnableCors:       boot.Cors,
 		},
 	})
 
@@ -154,7 +192,18 @@ func run() error {
 	return app.Run(ctx, boot.Listen)
 }
 
-// discard 是 io.Writer 的空实现。
-type discard struct{}
 
-func (discard) Write(p []byte) (int, error) { return len(p), nil }
+// wyAggURL 返回网易云要用的聚合服务地址。
+//
+// 关掉（Wy.Agg=false）或显式留空都表示「只走官方接口」，
+// 此时网易云取链会如实返回不可用，而不是悄悄换源。
+func wyAggURL(boot config.Bootstrap) string {
+	if !boot.Wy.Agg {
+		return ""
+	}
+	if boot.Wy.AggURL != "" {
+		return boot.Wy.AggURL
+	}
+	return wy.DefaultAggURL
+}
+

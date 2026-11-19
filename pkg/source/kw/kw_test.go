@@ -83,48 +83,6 @@ func TestBuildMobiQuery(t *testing.T) {
 	}
 }
 
-func TestBitrateMapping(t *testing.T) {
-	cases := map[string]string{
-		"128k":      br128,
-		"192k":      br192,
-		"320k":      br320,
-		"flac":      brFlac,
-		"flac24bit": brFlac24,
-		"hires":     brFlac24, // 别名归一化
-	}
-	for in, wantBR := range cases {
-		br, canonical, ok := BitrateFor(in)
-		if !ok || br != wantBR {
-			t.Errorf("BitrateFor(%q) = %q,%q,%v want %q", in, br, canonical, ok, wantBR)
-		}
-	}
-	for _, bad := range []string{"999k", "", "sky", "dolby", "master"} {
-		if _, _, ok := BitrateFor(bad); ok {
-			t.Errorf("BitrateFor(%q) 应失败", bad)
-		}
-	}
-
-	for br, want := range map[string]string{br320: quality.Q320, brFlac: quality.QFlac} {
-		got, ok := QualityFromBitrate(br)
-		if !ok || got != want {
-			t.Errorf("QualityFromBitrate(%q) = %q,%v", br, got, ok)
-		}
-	}
-}
-
-func TestResolveQuality(t *testing.T) {
-	br, canonical, ok := ResolveQuality("master")
-	if !ok {
-		t.Fatal("master 应可回落到支持的档位")
-	}
-	if br != brFlac24 || canonical != quality.QFlac24 {
-		t.Errorf("回落结果 = %q,%q", br, canonical)
-	}
-	if _, _, ok := ResolveQuality("nonsense"); ok {
-		t.Error("未知音质应失败")
-	}
-}
-
 func TestParseConvertURL(t *testing.T) {
 	cases := []struct {
 		name string

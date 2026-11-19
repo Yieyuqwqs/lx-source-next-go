@@ -117,6 +117,8 @@ func (r *Reloader) Once() (Outcome, error) {
 	}
 
 	_, created := r.holder.Swap(dyn, hash, r.now())
+	// 成功一次就把错误去重复位：否则同一条错误第二次出现时不再记日志
+	r.ResetErrorState()
 	r.logger.Info("配置已热更新", "version", created.Version, "hash", fmt.Sprintf("%x", hash[:4]))
 	return Outcome{Changed: true, Version: created.Version}, nil
 }

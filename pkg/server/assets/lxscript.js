@@ -19,13 +19,17 @@ const API_KEY = '__API_KEY__'
 // 因此这里只声明我们能确定的一档，不谎报无损。
 const QUALITYS = {
   kw: ['128k'],
-  tx: ['128k', '320k', 'flac'],
+  kg: ['128k', '320k', 'flac', 'flac24bit'],
+  tx: ['128k', '320k', 'flac', 'flac24bit'],
+  mg: ['128k', '320k', 'flac', 'flac24bit'],
   wy: ['128k', '320k', 'flac'],
 }
 
 const SOURCE_NAMES = {
   kw: '酷我',
+  kg: '酷狗',
   tx: 'QQ音乐',
+  mg: '咪咕',
   wy: '网易云',
 }
 
@@ -57,8 +61,14 @@ function parseEnvelope(body) {
 // 各源共用的取链逻辑，只是平台码不同
 function musicUrlOf(pt) {
   return function (musicInfo, quality) {
-    // 各平台的歌曲标识字段不一样，按优先级取
-    const id = musicInfo.songmid || musicInfo.hash || musicInfo.musicId || musicInfo.id
+    // 酷狗等平台每档音质对应不同 hash：优先用 file 里与请求音质匹配的那个
+    let id = null
+    const files = musicInfo.file
+    if (Array.isArray(files)) {
+      const hit = files.find(function (f) { return f && f.qual === quality && f.hash })
+      if (hit) id = hit.hash
+    }
+    if (!id) id = musicInfo.songmid || musicInfo.hash || musicInfo.musicId || musicInfo.id
     if (!id) return Promise.reject(new Error('缺少音乐 ID'))
     return httpGet('/url/' + pt + '/' + encodeURIComponent(id) + '/' + encodeURIComponent(quality))
       .then(function (body) {
@@ -71,7 +81,9 @@ function musicUrlOf(pt) {
 
 const apis = {
   kw: { musicUrl: musicUrlOf('kw') },
+  kg: { musicUrl: musicUrlOf('kg') },
   tx: { musicUrl: musicUrlOf('tx') },
+  mg: { musicUrl: musicUrlOf('mg') },
   wy: { musicUrl: musicUrlOf('wy') },
 }
 

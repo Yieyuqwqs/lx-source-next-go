@@ -91,9 +91,13 @@ func (d *Dynamic) Decide(m cache.Meta) (time.Duration, bool) {
 		return 0, false
 	}
 
+	// 空音质表示「没有音质概念」的资源（歌词、脚本等），直接可缓存；
+	// 未知音质仍不缓存，避免把平台新音质名误当普通音质存进去。
+	if m.Quality == "" {
+		return c.ttl, true
+	}
 	q, ok := quality.Canonical(m.Quality)
 	if !ok {
-		// 未知音质不参与缓存，避免把平台新音质名误当普通音质存进去
 		return 0, false
 	}
 	if !quality.IsFallback(q) && !c.allowSpec {

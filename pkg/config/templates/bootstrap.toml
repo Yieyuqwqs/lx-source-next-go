@@ -23,3 +23,23 @@ Strategy = 'anti'
 BaseURL = ''
 # mobi 策略用的 DES 密钥；留空则 mobi 不可用
 Key = ''
+
+# 网易云取链
+[Wy]
+# 官方接口匿名只返回 url:null，取直链必须借第三方签名服务。
+# 默认关闭：公共实例从部分网络访问时通时不通（Cloudflare 握手失败/超时）。
+# 自建 Meting 之类服务后，把地址填进 AggURL 并置 Agg = true。
+Agg = false
+# 自定义签名服务地址；留空用内置默认值（GD 音乐台）
+AggURL = ''
+# 登录态 Cookie（形如 MUSIC_U=xxx）。填了它，官方接口就能直接给地址，不必借第三方
+Cookie = ''
+
+# QQ 音乐取链
+[Tx]
+# 匿名拿不到 purl（服务端只回 104003），必须填登录态 Cookie
+# 内容形如：uin=o0123456789; qqmusic_key=xxx
+Cookie = ''
+# 也可只填这两项（从 Cookie 里取）：Uin 是数字 QQ 号，Ukey 是 qqmusic_key
+Uin = ''
+Ukey = ''
