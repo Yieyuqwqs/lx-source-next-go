@@ -44,13 +44,13 @@ type Doer interface {
 
 // Config 是接入参数。
 type Config struct {
-	Src         string
-	SearchBase  string
-	InfoBase    string
-	UserAgent   string
-	Expire      time.Duration
-	SearchPath  string
-	InfoPath    string
+	Src        string
+	SearchBase string
+	InfoBase   string
+	UserAgent  string
+	Expire     time.Duration
+	SearchPath string
+	InfoPath   string
 }
 
 // Client 实现 source.Source 与 source.Searcher。

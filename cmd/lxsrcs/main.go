@@ -21,8 +21,8 @@ import (
 	"github.com/lxsrcs/lx-source-next/pkg/source"
 	"github.com/lxsrcs/lx-source-next/pkg/source/kg"
 	"github.com/lxsrcs/lx-source-next/pkg/source/kw"
-	"github.com/lxsrcs/lx-source-next/pkg/source/wy"
 	"github.com/lxsrcs/lx-source-next/pkg/source/mock"
+	"github.com/lxsrcs/lx-source-next/pkg/source/wy"
 )
 
 func main() {
