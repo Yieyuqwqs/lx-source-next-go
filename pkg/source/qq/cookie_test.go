@@ -40,7 +40,7 @@ func TestURLSendsCredential(t *testing.T) {
 	}
 }
 
-// TestURLAnonymousUin 没配 Cookie 时退回匿名 uin=0（服务端会拒，但形状要对）。
+// TestURLAnonymousUin 没配凭据时用内置的匿名 QQ 号（这正是匿名能拿到 vkey 的原因）。
 func TestURLAnonymousUin(t *testing.T) {
 	d := &fakeDoer{seq: [][]byte{[]byte(infoBody), []byte(vkeyBody)}}
 	c := New(Config{MusicURL: "https://qq.invalid/musics.fcg"}, d)
@@ -48,8 +48,8 @@ func TestURLAnonymousUin(t *testing.T) {
 	if _, err := c.URL(context.Background(), "0027oMO61wWi55", "128k"); err != nil {
 		t.Fatalf("URL: %v", err)
 	}
-	if body := string(d.last); !strings.Contains(body, `"uin":"0"`) {
-		t.Errorf("匿名时应使用 uin=0: %s", body)
+	if body := string(d.last); !strings.Contains(body, `"uin":"1535153710"`) {
+		t.Errorf("匿名时应使用内置匿名 uin: %s", body)
 	}
 	if got := d.reqs[0].Header.Get("Cookie"); got != "" {
 		t.Errorf("匿名时不该带 Cookie: %q", got)
