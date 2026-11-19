@@ -13,7 +13,7 @@ import (
 var lxScriptTemplate string
 
 // lxScriptVersion 是自定义源脚本的版本号。
-const lxScriptVersion = "0.1.4"
+const lxScriptVersion = "0.1.7"
 
 // lxScriptName 是自定义源在播放器里显示的名字。
 const lxScriptName = "lx-source-next"
