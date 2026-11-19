@@ -141,29 +141,41 @@ Limiter: redis.New(redis.Config{Addr: "..."}),
 ## 6. 目录
 
 ```
-cmd/lxsrcs/            组合根
+cmd/lxsrcs/            组合根：装配顺序、配置加载、DNS 接管
 data/                  bootstrap.toml（启动）/ dynamic.toml（热更）
-pkg/config/            分层配置、原子快照、重载器
-pkg/server/            装配与路由
+pkg/config/            分层配置、原子快照、重载器、内置模板
+pkg/server/            装配与路由（唯一知道有哪些中间件/路由的地方）
 pkg/middleware/        Chain 原语
-pkg/middleware/access/     IP 黑白名单
-pkg/middleware/apikey/     接口密钥
+pkg/middleware/access/     IP 黑白名单（ipguard 的 HTTP 适配层）
+pkg/middleware/apikey/     接口密钥（常数时间比较）
+pkg/middleware/cors/       跨域响应头 + 预检
 pkg/middleware/ratelimit/  限流（Limiter 接口 + 内存实现）
 pkg/middleware/recoverer/  panic 兜底
 pkg/middleware/reqlog/     访问日志
 pkg/httpx/             响应信封、错误落盘、客户端 IP
-pkg/apierr/            错误码唯一真源
+pkg/apierr/            错误码唯一真源（未知码按 500）
 pkg/ipguard/           netip 黑白名单
-pkg/quality/           音质别名与回落
-pkg/logx/              slog → SSE 扇出 + 脱敏
-pkg/lrcutil/           歌词五格式
+pkg/quality/           音质别名与回落（只降不升）
+pkg/cache/             存储抽象 + 读穿 + 同键合并
+pkg/cache/policy/      缓存规则（平台/音质/TTL），随热更重建
+pkg/logx/              slog → SSE 扇出 + 凭据脱敏
+pkg/lrcutil/           歌词五格式（LRC/LRCX/KRC/QRC/NRC）
+pkg/source/            来源契约 + 可选能力（Searcher / QualityNormalizer）
+pkg/source/kw/          酷我：anti（免密钥）/ mobi（需 DES 密钥）
+pkg/source/kg/          酷狗：song_search_v2 + trackercdn v5 签名
+pkg/source/mg/          咪咕：App search_all + listenSong（302）
+pkg/source/wy/          网易云：weapi / eapi / 可选第三方签名
+pkg/source/qq/          QQ：musics.fcg + zzb 签名 + 试听兜底
+pkg/source/mock/        确定性假来源（链路自检/冒烟用）
 ```
 
 ## 7. 还没做
 
-- 各平台上游协议层（唯一无法靠"研究+实现+自测"闭环的部分，必须真账号联调）
-- 缓存驱动（`Data.Mode` 已进配置，驱动层未实现）
-- 前端资源挂载（`Apis.ApiOnly` 已进配置，静态文件服务未接）
+- **非匿名的音质档**：五个源的匿名天花板都是免费档，VIP/24bit 需要账号凭据（已留配置口）
+- **更多歌词**：目前只有网易云；酷狗/QQ/咪咕的歌词接口尚未接
+- **封面 / MV / 音乐详情**：各平台入口都要签名或登录
+- 缓存驱动只有本地文件（接口已就绪，Redis 实现未写）；限流计数是单机内存
+- 前端只挂了一个自检页；`Apis.ApiOnly` 用来关掉它
 
 ## 8. 缓存层（Data.Mode）
 
@@ -392,3 +404,43 @@ flac24bit → .../nf/resource/n1/69/32/588957081.mp3
    需要 `html.UnescapeString`。
 
 这两个都是"Mock 测试全绿、真实数据立刻翻车"的典型，印证了探测优先于猜测。
+
+---
+
+## 13. 五个源的取链通道（2026-11-20 实测）
+
+一句话：**匿名能力由上游的账号体系决定，代码只负责把能拿的那档拿干净**。
+每个源都把「请求形状」和「签名算法」单独放在纯函数文件里，便于做黄金值测试。
+
+| 源 | 通道 | 关键点 | 匿名结果 |
+|---|---|---|---|
+| 酷我 | `antiserver.kuwo.cn/anti.s` | 纯文本返回裸链接，**忽略 `br`** | 128k mp3 |
+| 酷狗 | `trackercdn.kugou.com/v5/url` | `key = md5(hash+"57ae…1005-0")`；`signature = md5("OIlwieks…" + 排序k=v + "OIlwieks…")`；必须带 `Kg-Thash/Kg-Rec/Kg-Rc` 头 | 128k（免费曲目） |
+| 咪咕 | `app.pd.nf.migu.cn/MIGUM2.0/.../listenSong.do` | 302 的 `Location` 即真实文件；`toneFlag` = PQ/HQ/SQ/ZQ | PQ/HQ |
+| 网易云 | `music.163.com/weapi/song/enhance/player/url/v1` | AES-128-CBC 两层 + RSA `encSecKey`；需要 `appver` Cookie | 128k（免费曲目） |
+| QQ | `u.y.qq.com/cgi-bin/musics.fcg` | `sign` = zzb 算法（MD5 → 固定下标抽取 → 掩码异或 → 自定义 base64）；先取 `media_mid` 再取 vkey | 免费曲目 128k；付费曲目**试听片段** |
+
+### 13.1 每档音质是不同 hash（酷狗 / QQ）
+
+这两个平台不是「一个文件多个码率」，而是**每个档位一个独立 hash/文件名**：
+
+- 酷狗：`FileHash` / `HQFileHash` / `SQFileHash` / `ResFileHash`(24bit)，搜索时记进 `Client` 的档位表；
+- QQ：`filename = 前缀 + media_mid + 后缀`，前缀 `M500`(128k) / `M800`(320k) / `F000`(无损) / `RS01`(24bit)，
+  付费曲目用 `RS02 + vs` 拿试听。
+
+所以「请求 flac24bit 却只给 128k」不是降级逻辑错，而是**该曲目没有对应 hash 或没有权限**，
+实现会逐档回退并把最终档位如实报给客户端。
+
+### 13.2 为什么要「先探测、后实现」
+
+本轮所有结论都来自真实请求（含三处只有实测才能发现的坑）：
+
+1. 网易云 `eapi` 匿名已失效，但 **`weapi` 仍然可用**——接口名看着像新旧关系，实际是两套鉴权；
+2. 酷狗 `trackercdn` 旧接口回「需要付费」，而 **v5 带签名**就能出免费曲目的链路；
+3. 咪咕 web 接口 301 到前端页，App 的 `listenSong` 才给 302。
+
+### 13.3 第三方签名服务的定位
+
+`[Wy] Agg` 是**可选加速路径**：公共实例从部分网络访问时通时不通（Cloudflare 线路），
+默认关闭；自己架一个签名服务再打开才稳。关掉时行为与未接入完全一致——
+不存在「因为第三方挂了所以整个源不可用」的情况。
