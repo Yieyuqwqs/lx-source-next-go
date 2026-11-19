@@ -107,13 +107,54 @@ func TestLyricRequest(t *testing.T) {
 	}
 }
 
-func TestURLUnavailable(t *testing.T) {
-	c := New(Config{}, &fakeDoer{})
-	_, err := c.URL(context.Background(), "1", "320k")
-	if err == nil {
-		t.Fatal("匿名环境不应能取网易云直链")
+// TestURLEapi 校验 eapi 取链的请求形状与结果解析。
+func TestURLEapi(t *testing.T) {
+	d := &fakeDoer{body: "{\"data\":[{\"id\":347230,\"url\":\"http://m8.music.126.net/a.mp3\",\"br\":320000,\"code\":200}]}"}
+	c := New(Config{EapiBase: "https://wy.invalid"}, d)
+
+	li, err := c.URL(context.Background(), "347230", "320k")
+	if err != nil {
+		t.Fatalf("URL: %v", err)
 	}
-	if !strings.Contains(err.Error(), "加密") {
-		t.Errorf("错误信息应说明原因: %v", err)
+	if li.Link != "http://m8.music.126.net/a.mp3" {
+		t.Errorf("Link = %q", li.Link)
+	}
+	if li.Qual != "320k" {
+		t.Errorf("Qual = %q", li.Qual)
+	}
+
+	req := d.reqs[0]
+	if req.Method != http.MethodPost {
+		t.Errorf("必须用 POST，实际 %s", req.Method)
+	}
+	if !strings.HasSuffix(req.URL.Path, "/eapi/song/enhance/player/url") {
+		t.Errorf("路径 = %q", req.URL.Path)
+	}
+	if got := req.Header.Get("Cookie"); got != "os=pc" {
+		t.Errorf("缺少环境 cookie os=pc，实际 %q", got)
+	}
+	if got := req.Header.Get("Content-Type"); !strings.Contains(got, "form-urlencoded") {
+		t.Errorf("Content-Type = %q", got)
+	}
+	form := string(d.last)
+	if !strings.HasPrefix(form, "params=") {
+		t.Errorf("请求体 = %q", form)
+	}
+	hexPart := strings.TrimPrefix(form, "params=")
+	if hexPart != strings.ToUpper(hexPart) {
+		t.Error("params 必须是全大写十六进制")
+	}
+}
+
+// TestURLNullURL 覆盖会员曲目：url 为 null 时要说明原因。
+func TestURLNullURL(t *testing.T) {
+	d := &fakeDoer{body: "{\"data\":[{\"id\":1,\"url\":null,\"br\":0,\"code\":404}]}"}
+	c := New(Config{EapiBase: "https://wy.invalid"}, d)
+	_, err := c.URL(context.Background(), "1", "128k")
+	if err == nil {
+		t.Fatal("url 为 null 应报错")
+	}
+	if !strings.Contains(err.Error(), "会员") {
+		t.Errorf("应说明原因: %v", err)
 	}
 }
