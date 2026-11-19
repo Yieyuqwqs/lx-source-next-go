@@ -1,5 +1,22 @@
 # 更新日志
 
+## v0.1.8 — 补齐歌词：酷狗 / QQ / 咪咕
+
+上版只有网易云有歌词，这一版把另外三家也接上了（全部匿名可用，实测通过）：
+
+| 源 | 通道 | 返回 |
+|---|---|---|
+| 酷狗 | `krcs.kugou.com/search` 拿候选 → `lyrics.kugou.com/download?fmt=lrc` | base64 的 LRC |
+| QQ | `c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg` | base64 的 `lyric` + `trans`（翻译） |
+| 咪咕 | 搜索响应里的 `lyricUrl` | 纯文本 LRC |
+| 网易云 | `api/song/lyric`（上一版已有） | 原文 + 翻译 + 逐字 |
+
+其他：
+
+- 自定义源脚本补上 `lyric` 动作：`actions` 按源声明；`idOf()` 抽成公用（取链按音质挑 hash，歌词取 128k hash）
+- 酷狗歌词候选/下载需要 `Referer: https://www.kugou.com/`，已按实测加上
+- 新增 5 个歌词单测（QQ base64 解码、酷狗两步流程、咪咕先搜后取、空歌词、无候选）
+
 ## v0.1.7 — 微修：并发、边界与协议细节
 
 这一轮只挑「CI 跑不出来、但线上会咬人」的问题：

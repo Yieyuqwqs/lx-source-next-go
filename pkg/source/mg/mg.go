@@ -61,8 +61,9 @@ type Client struct {
 	doer Doer
 	now  func() time.Time
 
-	mu   sync.RWMutex
-	crID map[string]string // contentId → copyrightId
+	mu     sync.RWMutex
+	crID   map[string]string // contentId → copyrightId
+	lyric  map[string]string // contentId → lyricUrl
 }
 
 var (
@@ -98,7 +99,8 @@ func New(cfg Config, doer Doer) *Client {
 		}
 		doer = cli
 	}
-	return &Client{cfg: cfg, doer: doer, now: time.Now, crID: make(map[string]string)}
+	return &Client{cfg: cfg, doer: doer, now: time.Now,
+		crID: make(map[string]string), lyric: make(map[string]string)}
 }
 
 // Src 实现 source.Source。
@@ -235,6 +237,9 @@ func (c *Client) Search(ctx context.Context, keyword string, page, size int) (so
 		}
 		out.Items = append(out.Items, item)
 		c.remember(it.ContentID, it.CopyrightID)
+		if it.LyricURL != "" {
+			c.rememberLyric(it.ContentID, it.LyricURL)
+		}
 	}
 	if n, err := strconv.Atoi(strings.TrimSpace(resp.SongRes.TotalCount)); err == nil && n > 0 {
 		out.Total = n
@@ -332,10 +337,27 @@ func (c *Client) listenURL(ctx context.Context, contentID, copyrightID, tone str
 	return "", fmt.Errorf("mg: 未返回播放地址（code=%s %s）", res.Code, res.Info)
 }
 
-// Lyric 实现 source.Source：歌词走搜索里带的 lyricUrl。
+// Lyric 实现 source.Source：歌词走搜索里带的 lyricUrl（纯文本 LRC）。
 func (c *Client) Lyric(ctx context.Context, id string) (source.LyricInfo, error) {
-	return source.LyricInfo{}, apierr.New(apierr.CodeUnavailable, "mg: 歌词暂未接入（需按 contentId 反查 lyricUrl）")
+	contentID := strings.TrimSpace(id)
+	if contentID == "" {
+		return source.LyricInfo{}, apierr.New(apierr.CodeBadRequest, "缺少咪咕 contentId")
+	}
+	u := c.lyricOf(contentID)
+	if u == "" {
+		return source.LyricInfo{}, apierr.New(apierr.CodeUnavailable,
+			"mg: 没有这首歌的歌词地址（先搜索一次再取歌词）")
+	}
+	raw, err := c.fetchText(ctx, u)
+	if err != nil {
+		return source.LyricInfo{}, err
+	}
+	if strings.TrimSpace(raw) == "" {
+		return source.LyricInfo{}, apierr.New(apierr.CodeUnavailable, "mg: 歌词内容为空")
+	}
+	return source.LyricInfo{Lyric: strings.TrimPrefix(raw, "\ufeff")}, nil
 }
+
 
 // Movie / Music / Video / Pic：暂时如实报不可用。
 func (c *Client) Movie(context.Context, string, string) (source.LinkInfo, error) {
@@ -402,4 +424,47 @@ func (c *Client) copyrightOf(contentID string) string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.crID[contentID]
+}
+
+// rememberLyric 记住 contentId → lyricUrl（搜索响应里带的）。
+func (c *Client) rememberLyric(contentID, lyricURL string) {
+	if contentID == "" || lyricURL == "" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.lyric) > 8192 {
+		c.lyric = make(map[string]string)
+	}
+	c.lyric[contentID] = lyricURL
+}
+
+// lyricOf 取 contentId 对应的歌词地址。
+func (c *Client) lyricOf(contentID string) string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.lyric[contentID]
+}
+
+// fetchText 取一段纯文本（歌词文件）。
+func (c *Client) fetchText(ctx context.Context, u string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return "", apierr.Wrap(apierr.CodeInternal, "mg: 构造歌词请求失败", err)
+	}
+	c.setHeaders(req)
+
+	resp, err := c.doer.Do(req)
+	if err != nil {
+		return "", apierr.Wrap(apierr.CodeUnavailable, "mg: 拉取歌词失败", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", apierr.Newf(apierr.CodeUnavailable, "mg: 歌词返回 HTTP %d", resp.StatusCode)
+	}
+	b, err := io.ReadAll(io.LimitReader(resp.Body, maxBody))
+	if err != nil {
+		return "", apierr.Wrap(apierr.CodeUnavailable, "mg: 读取歌词失败", err)
+	}
+	return string(b), nil
 }

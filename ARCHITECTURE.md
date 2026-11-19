@@ -420,7 +420,19 @@ flac24bit → .../nf/resource/n1/69/32/588957081.mp3
 | 网易云 | `music.163.com/weapi/song/enhance/player/url/v1` | AES-128-CBC 两层 + RSA `encSecKey`；需要 `appver` Cookie | 128k（免费曲目） |
 | QQ | `u.y.qq.com/cgi-bin/musics.fcg` | `sign` = zzb 算法（MD5 → 固定下标抽取 → 掩码异或 → 自定义 base64）；先取 `media_mid` 再取 vkey | 免费曲目 128k；付费曲目**试听片段** |
 
-### 13.1 每档音质是不同 hash（酷狗 / QQ）
+### 13.1 歌词通道（同样全部匿名）
+
+| 源 | 入口 | 形状 |
+|---|---|---|
+| 网易云 | `api/song/lyric?id=&lv=&kv=&tv=` | JSON，`lrc/tlyric/klyric` 明文 |
+| 酷狗 | `krcs.kugou.com/search` → `lyrics.kugou.com/download?fmt=lrc` | 先拿 `id+accesskey`，再取 base64 的 LRC |
+| QQ | `c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg?songmid=` | JSON，`lyric`/`trans` 都是 base64 |
+| 咪咕 | 搜索响应里的 `lyricUrl` | 直接是纯文本 LRC |
+
+歌词接口不依赖取链签名，也不需要登录态——所以歌词的可用范围比「完整音质」宽。
+酷我是例外：公开歌词入口（`m.kuwo.cn`、`newlyric.kuwo.cn`、`www.kuwo.cn/api`）全部失效或要 csrf。
+
+### 13.2 每档音质是不同 hash（酷狗 / QQ）
 
 这两个平台不是「一个文件多个码率」，而是**每个档位一个独立 hash/文件名**：
 
@@ -431,7 +443,7 @@ flac24bit → .../nf/resource/n1/69/32/588957081.mp3
 所以「请求 flac24bit 却只给 128k」不是降级逻辑错，而是**该曲目没有对应 hash 或没有权限**，
 实现会逐档回退并把最终档位如实报给客户端。
 
-### 13.2 为什么要「先探测、后实现」
+### 13.3 为什么要「先探测、后实现」
 
 本轮所有结论都来自真实请求（含三处只有实测才能发现的坑）：
 
@@ -439,7 +451,7 @@ flac24bit → .../nf/resource/n1/69/32/588957081.mp3
 2. 酷狗 `trackercdn` 旧接口回「需要付费」，而 **v5 带签名**就能出免费曲目的链路；
 3. 咪咕 web 接口 301 到前端页，App 的 `listenSong` 才给 302。
 
-### 13.3 第三方签名服务的定位
+### 13.4 第三方签名服务的定位
 
 `[Wy] Agg` 是**可选加速路径**：公共实例从部分网络访问时通时不通（Cloudflare 线路），
 默认关闭；自己架一个签名服务再打开才稳。关掉时行为与未接入完全一致——

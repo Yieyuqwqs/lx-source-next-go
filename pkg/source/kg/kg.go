@@ -92,11 +92,6 @@ func (c *Client) URL(ctx context.Context, id, quality string) (source.LinkInfo, 
 	return c.v5URLFor(ctx, c.hashTable(id), id, quality)
 }
 
-// Lyric 实现 source.Source：酷狗公开接口暂不提供，如实报不可用。
-func (c *Client) Lyric(context.Context, string) (source.LyricInfo, error) {
-	return source.LyricInfo{}, apierr.New(apierr.CodeUnavailable, "kg: 暂未接入歌词")
-}
-
 // Movie 实现 source.Source。
 func (c *Client) Movie(context.Context, string, string) (source.LinkInfo, error) {
 	return source.LinkInfo{}, apierr.New(apierr.CodeUnavailable, "kg: 该能力尚未接入")

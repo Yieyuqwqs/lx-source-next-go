@@ -152,11 +152,6 @@ func ParseVkey(body []byte) (string, error) {
 	return data.Sip[0] + info.Purl, nil
 }
 
-// Lyric 实现 source.Source。
-func (c *Client) Lyric(context.Context, string) (source.LyricInfo, error) {
-	return source.LyricInfo{}, apierr.New(apierr.CodeUnavailable, "qq: 暂未接入歌词")
-}
-
 // Movie 实现 source.Source。
 func (c *Client) Movie(context.Context, string, string) (source.LinkInfo, error) {
 	return source.LinkInfo{}, apierr.New(apierr.CodeUnavailable, "qq: 该能力尚未接入")

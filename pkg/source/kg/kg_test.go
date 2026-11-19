@@ -21,7 +21,9 @@ const searchBody = `{"status":1,"data":{"total":480,"lists":[
 type fakeDoer struct {
 	reqs   []*http.Request
 	body   string
+	seq    []string
 	status int
+	n      int
 }
 
 func (f *fakeDoer) Do(req *http.Request) (*http.Response, error) {
@@ -30,8 +32,13 @@ func (f *fakeDoer) Do(req *http.Request) (*http.Response, error) {
 	if st == 0 {
 		st = http.StatusOK
 	}
+	body := f.body
+	if f.n < len(f.seq) {
+		body = f.seq[f.n]
+	}
+	f.n++
 	return &http.Response{StatusCode: st, Header: make(http.Header),
-		Body: io.NopCloser(strings.NewReader(f.body))}, nil
+		Body: io.NopCloser(strings.NewReader(body))}, nil
 }
 
 func TestParseSearchV2(t *testing.T) {

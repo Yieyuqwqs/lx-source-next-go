@@ -58,17 +58,20 @@ function parseEnvelope(body) {
   return data
 }
 
+// 取歌曲 id：酷狗等平台每档音质对应不同 hash，优先用与请求音质匹配的那个
+function idOf(musicInfo, quality) {
+  const files = musicInfo && musicInfo.file
+  if (Array.isArray(files)) {
+    const hit = files.find(function (f) { return f && f.qual === quality && f.hash })
+    if (hit) return hit.hash
+  }
+  return musicInfo.songmid || musicInfo.hash || musicInfo.musicId || musicInfo.id
+}
+
 // 各源共用的取链逻辑，只是平台码不同
 function musicUrlOf(pt) {
   return function (musicInfo, quality) {
-    // 酷狗等平台每档音质对应不同 hash：优先用 file 里与请求音质匹配的那个
-    let id = null
-    const files = musicInfo.file
-    if (Array.isArray(files)) {
-      const hit = files.find(function (f) { return f && f.qual === quality && f.hash })
-      if (hit) id = hit.hash
-    }
-    if (!id) id = musicInfo.songmid || musicInfo.hash || musicInfo.musicId || musicInfo.id
+    const id = idOf(musicInfo, quality)
     if (!id) return Promise.reject(new Error('缺少音乐 ID'))
     return httpGet('/url/' + pt + '/' + encodeURIComponent(id) + '/' + encodeURIComponent(quality))
       .then(function (body) {
@@ -79,12 +82,27 @@ function musicUrlOf(pt) {
   }
 }
 
+// 哪些源提供歌词（酷我公开歌词入口已失效，故不在其中）
+const LYRIC_SOURCES = { kg: true, mg: true, tx: true, wy: true }
+
+// 歌词：服务端统一返回 {lyric, tlyric, rlyric, lxlyric}
+function lyricOf(pt) {
+  return function (musicInfo) {
+    const id = idOf(musicInfo, 'lrc')
+    if (!id) return Promise.reject(new Error('缺少音乐 ID'))
+    return httpGet('/lrc/' + pt + '/' + encodeURIComponent(id)).then(function (body) {
+      const data = parseEnvelope(body)
+      return data.data || {}
+    })
+  }
+}
+
 const apis = {
   kw: { musicUrl: musicUrlOf('kw') },
-  kg: { musicUrl: musicUrlOf('kg') },
-  tx: { musicUrl: musicUrlOf('tx') },
-  mg: { musicUrl: musicUrlOf('mg') },
-  wy: { musicUrl: musicUrlOf('wy') },
+  kg: { musicUrl: musicUrlOf('kg'), lyric: lyricOf('kg') },
+  tx: { musicUrl: musicUrlOf('tx'), lyric: lyricOf('tx') },
+  mg: { musicUrl: musicUrlOf('mg'), lyric: lyricOf('mg') },
+  wy: { musicUrl: musicUrlOf('wy'), lyric: lyricOf('wy') },
 }
 
 on(EVENT_NAMES.request, function (payload) {
@@ -92,14 +110,17 @@ on(EVENT_NAMES.request, function (payload) {
   const action = payload.action
   const info = payload.info || {}
 
-  if (action !== 'musicUrl') {
-    return Promise.reject(new Error('不支持的 action：' + action))
-  }
   const impl = apis[source]
   if (!impl) {
     return Promise.reject(new Error('不支持的源：' + source))
   }
-  return impl.musicUrl(info.musicInfo || {}, info.type)
+  if (action === 'musicUrl') {
+    return impl.musicUrl(info.musicInfo || {}, info.type)
+  }
+  if (action === 'lyric' && impl.lyric) {
+    return impl.lyric(info.musicInfo || {})
+  }
+  return Promise.reject(new Error('不支持的 action：' + action))
 })
 
 const sources = {}
@@ -107,7 +128,7 @@ Object.keys(apis).forEach(function (key) {
   sources[key] = {
     name: SOURCE_NAMES[key] || key,
     type: 'music',
-    actions: ['musicUrl'],
+    actions: LYRIC_SOURCES[key] ? ['musicUrl', 'lyric'] : ['musicUrl'],
     qualitys: QUALITYS[key] || [],
   }
 })
