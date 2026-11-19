@@ -180,6 +180,10 @@ func (a *App) routes() http.Handler {
 	// 缓存文件下载：{source}/{musicid}/{quality}.{ext}
 	mux.HandleFunc("GET /api/v1/file/{source}/{musicid}/{name}", a.handleFile)
 
+	// 自定义源脚本下载
+	mux.HandleFunc("GET /api/v0/lx-script.js", a.handleLXScript)
+	mux.HandleFunc("GET /api/v0/script", a.handleLXScript)
+
 	// v0 契约：{method}/{source}/{id}/{quality}
 	// quality 允许为空（文档要求此时保留尾部斜杠），因此同时注册两种形状。
 	mux.HandleFunc("GET /api/v0/{method}/{source}/{id}/{quality...}", a.handleV0)

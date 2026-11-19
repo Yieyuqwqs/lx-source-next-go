@@ -59,6 +59,16 @@ curl -i 'http://127.0.0.1:1101/api/v0/url/kw/474678847/320k?jmp'
 
 ## 接口
 
+### 导入播放器
+
+```
+GET /api/v0/lx-script.js        # 自定义源脚本（?key= 注入密钥，?raw 下载）
+GET /api/v0/script              # 同上，短别名
+```
+
+在 LX Music 里「设置 → 自定义源 → 导入」填入
+`http://<你的地址>:1101/api/v0/lx-script.js` 即可。
+
 ### v0 契约
 
 ```

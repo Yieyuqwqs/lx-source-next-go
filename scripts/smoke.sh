@@ -134,6 +134,14 @@ show "搜索缺少关键词 → 400" "$BASE/api/v1/search?pt=kw"
 show "搜索不支持的来源 → 503" "$BASE/api/v1/search?pt=mock&q=x"
 
 line
+printf '### 自定义源脚本（可直接导入 LX Music）\n'
+show "脚本头部" "$BASE/api/v0/lx-script.js" | head -30
+echo "--- 注入的地址与源 ---"
+curl -sS "$BASE/api/v0/lx-script.js" | grep -E "API_ADDR|kw:|sources\[|__" | head -8
+echo "--- 带密钥注入 ---"
+curl -sS "$BASE/api/v0/lx-script.js?key=smoke-key" | grep -E "API_KEY" | head -2
+
+line
 printf '### 服务端日志尾部\n'
 tail -25 /tmp/lxsrcs.log
 
