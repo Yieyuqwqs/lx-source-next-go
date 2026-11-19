@@ -25,9 +25,9 @@ func TestCodeHTTPStatus(t *testing.T) {
 			t.Errorf("%v.HTTPStatus() = %d, want %d", c.code, got, c.want)
 		}
 	}
-	// 未知码回落到 200，保持与历史行为一致
-	if got := Code(99).HTTPStatus(); got != http.StatusOK {
-		t.Errorf("未知码 HTTPStatus = %d, want 200", got)
+	// 未知码按服务器错误处理：回 200 会让客户端把错误当成成功
+	if got := Code(99).HTTPStatus(); got != http.StatusInternalServerError {
+		t.Errorf("未知码 HTTPStatus = %d, want 500", got)
 	}
 }
 

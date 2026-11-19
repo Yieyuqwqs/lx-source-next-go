@@ -86,10 +86,10 @@ func TestSearchURL(t *testing.T) {
 	if !containsStr(u, "pn=0") || !containsStr(u, "rn=10") {
 		t.Errorf("默认分页不对: %s", u)
 	}
-	// 页大小上限
+	// 页大小上限：夹到 50（而不是回落到默认 10）
 	u = c.searchURL("x", 1, 999)
-	if !containsStr(u, "rn=10") {
-		t.Errorf("超限页大小应回落: %s", u)
+	if !containsStr(u, "rn=50") {
+		t.Errorf("超限页大小应夹到 50: %s", u)
 	}
 }
 

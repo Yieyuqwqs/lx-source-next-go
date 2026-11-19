@@ -30,7 +30,7 @@ func NewGroup() *Group {
 // Do 执行并合并同键的并发调用。
 //
 // fn 只会被调用一次；其余调用方等待并共享同一份结果。
-func (g *Group) Do(key string, fn func() ([]byte, error)) ([]byte, error) {
+func (g *Group) Do(key string, fn func() ([]byte, error)) (data []byte, err error) {
 	g.mu.Lock()
 	if c, ok := g.m[key]; ok {
 		g.mu.Unlock()
@@ -47,6 +47,8 @@ func (g *Group) Do(key string, fn func() ([]byte, error)) ([]byte, error) {
 		if p := recover(); p != nil {
 			c.data = nil
 			c.err = fmt.Errorf("cache: 加载过程 panic: %v", p)
+			data = nil
+			err = c.err
 		}
 		g.mu.Lock()
 		delete(g.m, key)
