@@ -22,6 +22,7 @@ import (
 	"github.com/lxsrcs/lx-source-next/pkg/source/kg"
 	"github.com/lxsrcs/lx-source-next/pkg/source/kw"
 	"github.com/lxsrcs/lx-source-next/pkg/source/mock"
+	"github.com/lxsrcs/lx-source-next/pkg/source/qq"
 	"github.com/lxsrcs/lx-source-next/pkg/source/wy"
 )
 
@@ -125,6 +126,7 @@ func run() error {
 		"kw":   kwSrc,
 		"kg":   kg.New(kg.Config{}, nil),
 		"wy":   wy.New(wy.Config{}, nil),
+		"tx":   qq.New(qq.Config{}, nil),
 	}
 	logger.Info("已注册解析源", "codes", sources.Codes())
 	logger.Info(kwSrc.Describe())

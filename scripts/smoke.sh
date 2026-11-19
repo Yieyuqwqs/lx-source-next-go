@@ -154,6 +154,15 @@ show "wy 歌词" "$BASE/api/v0/lrc/wy/347230"
 show "wy 取链（需加密，应 503）" "$BASE/api/v0/url/wy/347230/320k"
 
 line
+printf '### QQ 音乐 tx（vkey 流程）\n'
+show "tx 搜索" "$BASE/api/v1/search?pt=tx&q=%E5%91%A8%E6%9D%B0%E4%BC%A6&sz=2"
+show "tx 取链" "$BASE/api/v0/url/tx/0027oMO61wWi55/128k"
+
+line
+printf '### 网易云 wy（eapi 取链）\n'
+show "wy 取链" "$BASE/api/v0/url/wy/347230/320k"
+
+line
 printf '### 服务端日志尾部\n'
 tail -25 /tmp/lxsrcs.log
 

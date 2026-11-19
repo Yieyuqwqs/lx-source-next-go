@@ -19,10 +19,14 @@ const API_KEY = '__API_KEY__'
 // 因此这里只声明我们能确定的一档，不谎报无损。
 const QUALITYS = {
   kw: ['128k'],
+  tx: ['128k', '320k', 'flac'],
+  wy: ['128k', '320k', 'flac'],
 }
 
 const SOURCE_NAMES = {
   kw: '酷我',
+  tx: 'QQ音乐',
+  wy: '网易云',
 }
 
 // 统一走服务端接口，不在脚本里直接连上游。
@@ -50,19 +54,25 @@ function parseEnvelope(body) {
   return data
 }
 
+// 各源共用的取链逻辑，只是平台码不同
+function musicUrlOf(pt) {
+  return function (musicInfo, quality) {
+    // 各平台的歌曲标识字段不一样，按优先级取
+    const id = musicInfo.songmid || musicInfo.hash || musicInfo.musicId || musicInfo.id
+    if (!id) return Promise.reject(new Error('缺少音乐 ID'))
+    return httpGet('/url/' + pt + '/' + encodeURIComponent(id) + '/' + encodeURIComponent(quality))
+      .then(function (body) {
+        const data = parseEnvelope(body)
+        if (!data.data) throw new Error('没有拿到播放链接')
+        return data.data
+      })
+  }
+}
+
 const apis = {
-  kw: {
-    musicUrl: function (musicInfo, quality) {
-      const id = musicInfo.songmid || musicInfo.musicId || musicInfo.id || musicInfo.hash
-      if (!id) return Promise.reject(new Error('缺少音乐 ID'))
-      return httpGet('/url/kw/' + encodeURIComponent(id) + '/' + encodeURIComponent(quality))
-        .then(function (body) {
-          const data = parseEnvelope(body)
-          if (!data.data) throw new Error('没有拿到播放链接')
-          return data.data
-        })
-    },
-  },
+  kw: { musicUrl: musicUrlOf('kw') },
+  tx: { musicUrl: musicUrlOf('tx') },
+  wy: { musicUrl: musicUrlOf('wy') },
 }
 
 on(EVENT_NAMES.request, function (payload) {

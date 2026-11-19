@@ -1,15 +1,15 @@
-// Package wy 对接网易云的公开匿名接口。
+// Package wy 对接网易云的公开接口。
 //
-// 实测可用：
+// 能力来源（均为公开实现，参考 NeteaseCloudMusicApi / listen1）：
 //   - 搜索：music.163.com/api/search/get（未加密，直接返回 JSON）
 //   - 歌词：music.163.com/api/song/lyric（含 lrc / tlyric / klyric）
-//
-// 不可用：播放直链需要 weapi/eapi 加密，匿名拿不到，这里如实报不可用。
+//   - 直链：interface3.music.163.com/eapi/song/enhance/player/url（eapi 加密，见 eapi.go）
 package wy
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -19,12 +19,15 @@ import (
 	"time"
 
 	"github.com/lxsrcs/lx-source-next/pkg/apierr"
+	"github.com/lxsrcs/lx-source-next/pkg/quality"
 	"github.com/lxsrcs/lx-source-next/pkg/source"
 )
 
 const (
 	// DefaultBase 是接口根地址。
 	DefaultBase = "https://music.163.com"
+	// DefaultEapiBase 是 eapi 取链接口的根地址。
+	DefaultEapiBase = "https://interface3.music.163.com"
 	// DefaultUA 默认请求标识。
 	DefaultUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 	// DefaultReferer 是必需的来源标识，缺失会被拒。
@@ -42,14 +45,17 @@ type Doer interface {
 type Config struct {
 	Src       string
 	Base      string
+	EapiBase  string
 	UserAgent string
 	Referer   string
+	Expire    time.Duration
 }
 
 // Client 实现 source.Source 与 source.Searcher。
 type Client struct {
 	cfg  Config
 	doer Doer
+	now  func() time.Time
 }
 
 var (
@@ -65,25 +71,121 @@ func New(cfg Config, doer Doer) *Client {
 	if cfg.Base == "" {
 		cfg.Base = DefaultBase
 	}
+	if cfg.EapiBase == "" {
+		cfg.EapiBase = DefaultEapiBase
+	}
 	if cfg.UserAgent == "" {
 		cfg.UserAgent = DefaultUA
 	}
 	if cfg.Referer == "" {
 		cfg.Referer = DefaultReferer
 	}
+	if cfg.Expire <= 0 {
+		cfg.Expire = 30 * time.Minute
+	}
 	if doer == nil {
 		doer = &http.Client{Timeout: 10 * time.Second}
 	}
-	return &Client{cfg: cfg, doer: doer}
+	return &Client{cfg: cfg, doer: doer, now: time.Now}
 }
 
 // Src 实现 source.Source。
 func (c *Client) Src() string { return c.cfg.Src }
 
-// URL 实现 source.Source：匿名环境拿不到直链，如实报不可用。
-func (c *Client) URL(context.Context, string, string) (source.LinkInfo, error) {
-	return source.LinkInfo{}, apierr.New(apierr.CodeUnavailable,
-		"wy: 播放直链需要加密接口，匿名环境不可用")
+// URL 实现 source.Source：走 eapi 加密接口取直链。
+//
+// 把 {"ids":"[id]","br":br} 用 eapi 加密后以表单 POST，
+// 响应里 data[0].url 即直链；url 为 null 表示需要会员或无版权，如实报错。
+func (c *Client) URL(ctx context.Context, id, q string) (source.LinkInfo, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return source.LinkInfo{}, apierr.New(apierr.CodeBadRequest, "缺少网易云歌曲 ID")
+	}
+	br, canonical := bitrateFor(q)
+
+	// 用结构体而不是 map：字段顺序固定，便于黄金测试
+	params, err := EapiParams("/api/song/enhance/player/url", urlPayload{
+		IDs: "[" + id + "]",
+		Br:  br,
+	})
+	if err != nil {
+		return source.LinkInfo{}, apierr.Wrap(apierr.CodeInternal, "wy: 生成 eapi 参数失败", err)
+	}
+
+	form := url.Values{}
+	form.Set("params", params)
+	u := strings.TrimRight(c.cfg.EapiBase, "/") + "/eapi/song/enhance/player/url"
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, strings.NewReader(form.Encode()))
+	if err != nil {
+		return source.LinkInfo{}, apierr.Wrap(apierr.CodeInternal, "wy: 构造请求失败", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("User-Agent", c.cfg.UserAgent)
+	req.Header.Set("Referer", c.cfg.Referer)
+	// 这个 cookie 是接口要求的环境标识，不是登录态
+	req.Header.Set("Cookie", "os=pc")
+
+	body, err := c.post(req)
+	if err != nil {
+		return source.LinkInfo{}, err
+	}
+	link, err := ParsePlayerURL(body)
+	if err != nil {
+		return source.LinkInfo{}, apierr.Wrap(apierr.CodeUnavailable, "wy: 取直链失败", err)
+	}
+	return source.LinkInfo{
+		Qual: canonical,
+		Expi: c.now().Add(c.cfg.Expire).Unix(),
+		Link: link,
+	}, nil
+}
+
+// urlPayload 是 eapi 取链的请求体。
+type urlPayload struct {
+	IDs string `json:"ids"`
+	Br  int    `json:"br"`
+}
+
+// bitrateFor 把音质映射成网易云的 br 值。
+func bitrateFor(q string) (int, string) {
+	c, ok := quality.Canonical(q)
+	if !ok {
+		return 128000, quality.Q128
+	}
+	switch c {
+	case quality.Q192:
+		return 192000, quality.Q192
+	case quality.Q320:
+		return 320000, quality.Q320
+	case quality.QFlac:
+		return 999000, quality.QFlac
+	case quality.QFlac24:
+		return 1999000, quality.QFlac24
+	}
+	return 128000, quality.Q128
+}
+
+// ParsePlayerURL 从 eapi 响应里取直链。
+func ParsePlayerURL(body []byte) (string, error) {
+	var resp struct {
+		Data []struct {
+			URL  *string `json:"url"`
+			Br   int     `json:"br"`
+			Code int     `json:"code"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return "", fmt.Errorf("wy: 响应不是 JSON: %w", err)
+	}
+	if len(resp.Data) == 0 {
+		return "", errors.New("wy: 响应里没有 data")
+	}
+	d := resp.Data[0]
+	if d.URL == nil || *d.URL == "" {
+		return "", fmt.Errorf("wy: 直链为空（code=%d，通常是会员曲目或无版权）", d.Code)
+	}
+	return *d.URL, nil
 }
 
 // Lyric 实现 source.Source。
@@ -170,7 +272,11 @@ func (c *Client) get(ctx context.Context, path string, params url.Values) ([]byt
 	}
 	req.Header.Set("User-Agent", c.cfg.UserAgent)
 	req.Header.Set("Referer", c.cfg.Referer)
+	return c.post(req)
+}
 
+// post 实际执行请求（GET 也走这里）。
+func (c *Client) post(req *http.Request) ([]byte, error) {
 	resp, err := c.doer.Do(req)
 	if err != nil {
 		return nil, apierr.Wrap(apierr.CodeUnavailable, "wy: 请求上游失败", err)
@@ -213,7 +319,7 @@ func ParseSearch(body []byte) (source.SearchResult, error) {
 			ID:   strconv.FormatInt(s.ID, 10),
 			Name: s.Name,
 			Al:   source.AlbumInfo{Name: s.Album.Name},
-			Dt:   uint32(s.Duration / 1000), // 上游给毫秒，我们统一用秒
+			Dt:   uint32(s.Duration / 1000), // 上游给毫秒，这里统一成秒
 		}
 		for _, a := range s.Artists {
 			if a.Name != "" {
@@ -230,7 +336,7 @@ func ParseSearch(body []byte) (source.SearchResult, error) {
 
 // ParseLyric 解析歌词响应。
 //
-// 响应结构：{"lrc":{"lyric":"..."},"tlyric":{"lyric":"..."},"klyric":{"lyric":"..."}}
+// 响应结构：{"lrc":{"lyric":"..."},"tlyric":{...},"klyric":{...}}
 func ParseLyric(body []byte) (source.LyricInfo, error) {
 	var resp struct {
 		Lrc struct {
@@ -252,6 +358,6 @@ func ParseLyric(body []byte) (source.LyricInfo, error) {
 	return source.LyricInfo{
 		Lyric:   resp.Lrc.Lyric,
 		TLyric:  resp.TLyric.Lyric,
-		LxLyric: resp.KLyric.Lyric, // klyric 是逐字歌词，正好对应 LX 的 lxlyric
+		LxLyric: resp.KLyric.Lyric, // klyric 是逐字歌词，正好对应 lxlyric
 	}, nil
 }
