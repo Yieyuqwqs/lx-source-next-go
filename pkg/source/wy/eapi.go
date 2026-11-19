@@ -1,14 +1,13 @@
 package wy
 
 import (
-	"bytes"
 	"crypto/aes"
 	"crypto/md5"
-	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // 本文件是纯函数：eapi 参数加密，不做任何 IO。
@@ -45,11 +44,8 @@ func EapiParams(urlPath string, payload any) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return bytes.ToUpper([]byte(hex.EncodeToString(enc))), nil
+	return strings.ToUpper(hex.EncodeToString(enc)), nil
 }
-
-// EapiParamsString 是 EapiParams 的字符串便捷版。
-func EapiParamsString(params string) string { return string(params) }
 
 // aesECBEncrypt 做 AES-ECB + PKCS#7 填充。
 func aesECBEncrypt(key, plain []byte) ([]byte, error) {
@@ -73,13 +69,4 @@ func pkcs7Pad(b []byte, size int) []byte {
 		out[i] = byte(n)
 	}
 	return out
-}
-
-// randomHex 生成 n 字节的随机十六进制串，备用（部分接口需要）。
-func randomHex(n int) string {
-	b := make([]byte, n)
-	if _, err := rand.Read(b); err != nil {
-		return "0123456789abcdef"
-	}
-	return hex.EncodeToString(b)
 }
