@@ -133,3 +133,35 @@ func TestLogErrorDedup(t *testing.T) {
 		t.Errorf("重置后应重新记录，实际 %d 次", got)
 	}
 }
+
+// TestTemplatesParseAsRootKeys 守住一个真实踩过的坑：
+// 往模板末尾追加键时，如果末尾还处在某个 [表] 里，
+// 这个键就会被解析成该表的子字段，导致「文档里有、结构体里没有」而报错。
+func TestTemplatesParseAsRootKeys(t *testing.T) {
+	raw, err := Template(BootstrapFile)
+	if err != nil {
+		t.Fatalf("读取模板: %v", err)
+	}
+	boot, err := ParseBootstrap(raw)
+	if err != nil {
+		t.Fatalf("bootstrap 模板解析失败: %v", err)
+	}
+	// DNSServer 必须落在根层，而不是被塞进 [Kw]
+	if boot.DNSServer != "" {
+		t.Errorf("DNSServer 默认应为空，实际 %q", boot.DNSServer)
+	}
+	if boot.Kw.Strategy != "anti" {
+		t.Errorf("Kw.Strategy 应为 anti，实际 %q", boot.Kw.Strategy)
+	}
+	if boot.Listen != ":1101" {
+		t.Errorf("Listen 解析错误: %q", boot.Listen)
+	}
+
+	dyn, err := Template(DynamicFile)
+	if err != nil {
+		t.Fatalf("读取模板: %v", err)
+	}
+	if _, err := Parse(dyn); err != nil {
+		t.Fatalf("dynamic 模板解析失败: %v", err)
+	}
+}
