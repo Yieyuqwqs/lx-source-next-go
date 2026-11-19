@@ -71,7 +71,7 @@ jobs:
           if [ "${GITHUB_REF_TYPE}" != "tag" ]; then
             tag="nightly-$(date +%Y%m%d%H%M)"
           fi
-          gh release create "$tag" dist/* data/bootstrap.toml data/dynamic.toml \
+          gh release create "$tag" dist/* \
             --title "$tag" \
             --notes-file CHANGELOG.md \
-            || gh release upload "$tag" dist/* data/bootstrap.toml data/dynamic.toml --clobber
+            || gh release upload "$tag" dist/* --clobber

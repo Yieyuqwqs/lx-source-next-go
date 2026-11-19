@@ -67,6 +67,9 @@ type Reloader struct {
 	loader Loader
 	logger *slog.Logger
 	now    func() time.Time
+	// lastErr 记录上一次已经打过的错误文案。
+	// 配置持续不可读时每轮都会失败，去重后只记一条，避免日志刷屏。
+	lastErr string
 }
 
 // NewReloader 创建重载器。logger 可为 nil。
@@ -132,7 +135,7 @@ func (r *Reloader) Run(ctx context.Context, interval time.Duration) error {
 		interval = time.Second
 	}
 	if _, err := r.Once(); err != nil {
-		r.logger.Error("首次加载配置失败，沿用默认配置", "err", err)
+		r.logError(err)
 	}
 
 	tick := time.NewTicker(interval)
@@ -143,8 +146,26 @@ func (r *Reloader) Run(ctx context.Context, interval time.Duration) error {
 			return ctx.Err()
 		case <-tick.C:
 			if _, err := r.Once(); err != nil {
-				r.logger.Error("配置热更新失败，保留旧配置", "err", err)
+				r.logError(err)
 			}
 		}
 	}
+}
+
+// logError 记录热更错误，同一文案只记一次。
+//
+// 配置文件被删掉时，轮询每 N 秒就会失败一次；如果不去重，
+// 终端会被同一条错误刷满屏（这在 Termux 里尤其难用）。
+func (r *Reloader) logError(err error) {
+	msg := err.Error()
+	if msg == r.lastErr {
+		return
+	}
+	r.lastErr = msg
+	r.logger.Error("配置加载失败，保留当前配置", "err", err)
+}
+
+// ResetErrorState 在加载成功后清空去重状态，让下次故障还能被记录。
+func (r *Reloader) ResetErrorState() {
+	r.lastErr = ""
 }

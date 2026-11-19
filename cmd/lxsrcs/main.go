@@ -37,7 +37,12 @@ func run() error {
 	bootPath := filepath.Join(*confDir, "bootstrap.toml")
 	dynPath := filepath.Join(*confDir, "dynamic.toml")
 
-	// ---- 1. 启动配置：读一次，之后不可变 ----
+	// ---- 1. 配置目录：缺失时用内置模板生成，绝不覆盖已有文件 ----
+	created, err := config.EnsureFiles(*confDir)
+	if err != nil {
+		return err
+	}
+
 	boot, err := config.LoadBootstrap(bootPath)
 	if err != nil {
 		return err
@@ -55,6 +60,10 @@ func run() error {
 	hub := logx.NewHub(512)
 	logger := slog.New(hub.Handler(sink))
 	slog.SetDefault(logger)
+
+	for _, p := range created {
+		logger.Info("已生成默认配置", "path", p)
+	}
 
 	// ---- 3. 动态配置：先给默认值，随后异步加载真实配置 ----
 	holder := config.NewHolder(&config.Snapshot{

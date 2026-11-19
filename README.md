@@ -17,7 +17,8 @@ make build          # 或 go build ./cmd/lxsrcs
 curl 'http://127.0.0.1:1101/api/v0/ping'
 ```
 
-第一次跑起来什么都能用——默认配置已经可以搜索和取链（走酷我匿名接口）。
+首次运行会在 `data/` 里**自动生成** `bootstrap.toml` 与 `dynamic.toml`，
+无需手动准备。默认配置已经可以搜索和取链（走酷我匿名接口）。
 
 ```sh
 # 搜索
