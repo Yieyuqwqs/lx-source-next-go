@@ -51,6 +51,9 @@ const maxBody = 8 << 20
 // DefaultAntiQuality 是 anti 策略默认上报的音质（保守取值）。
 const DefaultAntiQuality = quality.Q128
 
+// defaultUserAgent 是默认请求标识。
+const defaultUserAgent = "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Mobile Safari/537.36"
+
 // Doer 抽象 HTTP 执行器，测试可注入假实现，无需真实网络。
 type Doer interface {
 	Do(req *http.Request) (*http.Response, error)
@@ -143,6 +146,10 @@ func New(cfg Config, doer Doer) *Client {
 	}
 	if cfg.Expire <= 0 {
 		cfg.Expire = 30 * time.Minute
+	}
+	// 给一个像客户端的 UA：不少国内接口对 Go-http-client 这种默认 UA 会直接拒绝
+	if cfg.UserAgent == "" {
+		cfg.UserAgent = defaultUserAgent
 	}
 	if doer == nil {
 		doer = &http.Client{Timeout: 10 * time.Second}

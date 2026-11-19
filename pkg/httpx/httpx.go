@@ -41,6 +41,15 @@ func Fail(w http.ResponseWriter, err error) {
 	msg := ""
 	if e, ok := apierr.From(err); ok {
 		msg = e.Msg
+		// 把根因拼上：这是自建服务，能看到 "dial tcp: lookup ... no such host"
+		// 远比只看到 "请求上游失败" 有用。
+		if e.Err != nil {
+			if msg == "" {
+				msg = e.Err.Error()
+			} else {
+				msg = msg + ": " + e.Err.Error()
+			}
+		}
 	} else if err != nil {
 		msg = err.Error()
 	}

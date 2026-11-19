@@ -65,6 +65,10 @@ func run() error {
 		logger.Info("已生成默认配置", "path", p)
 	}
 
+	// ---- 2.5 DNS：Android/Termux 上静态二进制的纯解析器常拿不到配置，
+	//             这里在首次出网前决定是否接管 ----
+	installResolver(boot, logger)
+
 	// ---- 3. 动态配置：先给默认值，随后异步加载真实配置 ----
 	holder := config.NewHolder(&config.Snapshot{
 		Dyn:      config.Default(),

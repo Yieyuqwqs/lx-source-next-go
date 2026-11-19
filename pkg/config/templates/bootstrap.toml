@@ -21,3 +21,6 @@ Strategy = 'anti'
 BaseURL = ''
 # mobi 策略用的 DES 密钥；留空则 mobi 不可用
 Key = ''
+
+# 自定义 DNS（留空自动判断；Android/Termux 上会自动回落到 223.5.5.5:53）
+DNSServer = ''

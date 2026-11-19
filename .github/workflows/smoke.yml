@@ -17,3 +17,7 @@ jobs:
 
       - name: 端到端冒烟
         run: bash scripts/smoke.sh
+
+      - name: 探测第三方公开 API（诊断用）
+        run: bash scripts/probe-apis.sh
+        continue-on-error: true

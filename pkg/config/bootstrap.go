@@ -29,6 +29,11 @@ type Bootstrap struct {
 	ReloadInterval string `toml:"ReloadInterval"`
 	// CacheDir 缓存目录。属于部署形态，不参与热更。
 	CacheDir string `toml:"CacheDir"`
+	// DNSServer 自定义 DNS 服务器（形如 223.5.5.5:53）。
+	//
+	// 留空时自动判断：能读到 /etc/resolv.conf 就用系统默认，
+	// 读不到（典型是 Android/Termux 上的静态二进制）就回落到公共 DNS。
+	DNSServer string `toml:"DNSServer"`
 	// Kw 是酷我来源的上游参数。
 	Kw KwConf `toml:"Kw"`
 }
