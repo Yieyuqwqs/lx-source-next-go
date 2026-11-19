@@ -142,6 +142,18 @@ echo "--- 带密钥注入 ---"
 curl -sS "$BASE/api/v0/lx-script.js?key=smoke-key" | grep -E "API_KEY" | head -2
 
 line
+printf '### 酷狗 kg（公开接口，真实网络）\n'
+show "kg 搜索" "$BASE/api/v1/search?pt=kg&q=%E5%91%A8%E6%9D%B0%E4%BC%A6&sz=2"
+show "kg 取链（用实测拿到的 hash）" "$BASE/api/v0/url/kg/1f7e7659b9fff4fb6f71562a61bbc25f/128k"
+show "kg 歌词（未接入，应 503）" "$BASE/api/v0/lrc/kg/1f7e7659b9fff4fb6f71562a61bbc25f"
+
+line
+printf '### 网易云 wy（公开接口，真实网络）\n'
+show "wy 搜索" "$BASE/api/v1/search?pt=wy&q=%E5%91%A8%E6%9D%B0%E4%BC%A6&sz=2"
+show "wy 歌词" "$BASE/api/v0/lrc/wy/347230"
+show "wy 取链（需加密，应 503）" "$BASE/api/v0/url/wy/347230/320k"
+
+line
 printf '### 服务端日志尾部\n'
 tail -25 /tmp/lxsrcs.log
 

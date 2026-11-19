@@ -19,7 +19,9 @@ import (
 	"github.com/lxsrcs/lx-source-next/pkg/logx"
 	"github.com/lxsrcs/lx-source-next/pkg/server"
 	"github.com/lxsrcs/lx-source-next/pkg/source"
+	"github.com/lxsrcs/lx-source-next/pkg/source/kg"
 	"github.com/lxsrcs/lx-source-next/pkg/source/kw"
+	"github.com/lxsrcs/lx-source-next/pkg/source/wy"
 	"github.com/lxsrcs/lx-source-next/pkg/source/mock"
 )
 
@@ -121,6 +123,8 @@ func run() error {
 	sources := source.Registry{
 		"mock": mock.New(),
 		"kw":   kwSrc,
+		"kg":   kg.New(kg.Config{}, nil),
+		"wy":   wy.New(wy.Config{}, nil),
 	}
 	logger.Info("已注册解析源", "codes", sources.Codes())
 	logger.Info(kwSrc.Describe())
