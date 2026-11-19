@@ -103,35 +103,36 @@ func (c *Client) URL(ctx context.Context, id, q string) (source.LinkInfo, error)
 	return c.urlTx(ctx, id, q)
 }
 
+// vkeyMidurl 是 vkey 响应里每条候选链接的描述。
+type vkeyMidurl struct {
+	Purl   string `json:"purl"`
+	Result int    `json:"result"`
+}
+
+// vkeyData 是 req_0 / req_1 共用的数据段（两者字段完全一致，统一成一个类型）。
+type vkeyData struct {
+	Sip        []string    `json:"sip"`
+	Midurlinfo []vkeyMidurl `json:"midurlinfo"`
+}
+
+// vkeyResp 兼容两种模块名：musics.fcg 用 req_0，旧接口用 req_1。
+type vkeyResp struct {
+	Req0 struct {
+		Code int      `json:"code"`
+		Data vkeyData `json:"data"`
+	} `json:"req_0"`
+	Req1 struct {
+		Code int      `json:"code"`
+		Data vkeyData `json:"data"`
+	} `json:"req_1"`
+}
+
 // ParseVkey 从 vkey 响应里拼出直链。
 func ParseVkey(body []byte) (string, error) {
-	var resp struct {
-		Req0 struct {
-			Code int `json:"code"`
-			Data struct {
-				Sip        []string `json:"sip"`
-				Midurlinfo []struct {
-					Purl   string `json:"purl"`
-					Result int    `json:"result"`
-				} `json:"midurlinfo"`
-			} `json:"data"`
-		} `json:"req_0"`
-		Req1 struct {
-			Code int `json:"code"`
-			Data struct {
-				Sip        []string `json:"sip"`
-				Midurlinfo []struct {
-					Purl   string `json:"purl"`
-					Result int    `json:"result"`
-					Errtype string `json:"errtype"`
-				} `json:"midurlinfo"`
-			} `json:"data"`
-		} `json:"req_1"`
-	}
+	var resp vkeyResp
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return "", fmt.Errorf("qq: 响应不是 JSON: %w", err)
 	}
-	// musics.fcg 用 req_0，旧接口用 req_1，两种都兼容
 	data := resp.Req0.Data
 	code := resp.Req0.Code
 	if len(data.Midurlinfo) == 0 {
