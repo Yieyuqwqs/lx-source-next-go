@@ -25,7 +25,10 @@ import (
 
 const (
 	// DefaultSearchBase 是搜索接口地址。
-	DefaultSearchBase = "https://mobilecdn.kugou.com"
+	//
+	// 必须用 http：mobilecdn.kugou.com 解析到腾讯云 CDN，
+	// 其证书不包含该域名，走 https 会直接 x509 校验失败。
+	DefaultSearchBase = "http://mobilecdn.kugou.com"
 	// DefaultInfoBase 是歌曲信息接口地址。
 	DefaultInfoBase = "http://m.kugou.com"
 	// DefaultUA 默认请求标识。
@@ -205,25 +208,56 @@ func (c *Client) get(ctx context.Context, base string, params url.Values) ([]byt
 
 // ParseSongURL 从歌曲信息响应里取直链。
 //
-// 实测响应里直链字段叫 url；同时兼容 url_128 之类的降级字段。
+// 不依赖具体字段名：上游把直链放在哪个键里变过几次，
+// 这里递归扫描所有字符串值，挑出第一个像音频/视频地址的。
+// 前提是响应里本来就有直链——没有就如实报错，绝不拼接猜测。
 func ParseSongURL(body []byte) (string, error) {
 	var m map[string]any
 	if err := json.Unmarshal(body, &m); err != nil {
 		return "", fmt.Errorf("kg: 响应不是 JSON: %w", err)
 	}
-	for _, k := range []string{"url", "url_320", "url_128", "backup_url"} {
-		if v, ok := m[k].(string); ok {
-			if s := strings.TrimSpace(v); strings.HasPrefix(s, "http") {
-				return s, nil
-			}
-		}
+	if link := findMediaURL(m, 0); link != "" {
+		return link, nil
 	}
-	// errcode 非 0 时把上游信息带出来
+	// errcode 非 0 时把上游信息带出来，便于排查
 	if c, ok := m["errcode"].(float64); ok && c != 0 {
 		msg, _ := m["error"].(string)
 		return "", fmt.Errorf("kg: 上游 errcode=%v msg=%q", c, msg)
 	}
 	return "", errors.New("kg: 响应里没有可用直链")
+}
+
+// findMediaURL 深度优先找第一个像媒体地址的字符串。
+func findMediaURL(v any, depth int) string {
+	if depth > 4 {
+		return ""
+	}
+	switch t := v.(type) {
+	case string:
+		s := strings.TrimSpace(t)
+		if !strings.HasPrefix(s, "http") {
+			return ""
+		}
+		low := strings.ToLower(s)
+		for _, ext := range []string{".mp3", ".flac", ".m4a", ".aac", ".ogg", ".mp4", ".mkv"} {
+			if strings.Contains(low, ext) {
+				return s
+			}
+		}
+	case map[string]any:
+		for _, sub := range t {
+			if link := findMediaURL(sub, depth+1); link != "" {
+				return link
+			}
+		}
+	case []any:
+		for _, sub := range t {
+			if link := findMediaURL(sub, depth+1); link != "" {
+				return link
+			}
+		}
+	}
+	return ""
 }
 
 // ParseSearch 解析搜索响应。

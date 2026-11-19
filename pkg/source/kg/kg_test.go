@@ -170,3 +170,37 @@ func TestHTTPTestServer(t *testing.T) {
 		t.Errorf("Link = %q", li.Link)
 	}
 }
+
+// TestParseSongURLTolerant 覆盖「直链字段名不固定」的场景。
+func TestParseSongURLTolerant(t *testing.T) {
+	cases := []string{
+		`{"url":"http://a.com/x.mp3"}`,
+		`{"data":{"play_url":"http://a.com/x.mp3"}}`,
+		`{"result":{"list":[{"src":"http://a.com/x.flac"}]}}`,
+		`{"url_320":"http://a.com/x.mp3","url_128":"http://a.com/y.mp3"}`,
+	}
+	for _, c := range cases {
+		got, err := ParseSongURL([]byte(c))
+		if err != nil {
+			t.Errorf("%s 解析失败: %v", c, err)
+			continue
+		}
+		if !strings.HasPrefix(got, "http") {
+			t.Errorf("%s → %q", c, got)
+		}
+	}
+
+	// 只有非媒体地址时不能瞎返回
+	if _, err := ParseSongURL([]byte(`{"avatar":"http://a.com/pic.jpg"}`)); err == nil {
+		t.Error("非媒体地址不应被当成直链")
+	}
+}
+
+// TestSearchBaseIsHTTP 守住这个真实踩过的坑：该域名走 https 会证书校验失败。
+func TestSearchBaseIsHTTP(t *testing.T) {
+	c := New(Config{}, nil)
+	_ = c
+	if !strings.HasPrefix(DefaultSearchBase, "http://") {
+		t.Errorf("搜索地址必须走 http，当前 %q", DefaultSearchBase)
+	}
+}
