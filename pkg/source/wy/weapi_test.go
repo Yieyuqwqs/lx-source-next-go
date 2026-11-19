@@ -33,7 +33,7 @@ func TestQualityFromBR(t *testing.T) {
 	cases := []struct {
 		br   int
 		qual string
-	}{{128008, "128k"}, {192000, "192k"}, {320000, "320k"}, {900000, "flac"}, {999000, "flac24bit"}, {0, "128k"}}
+	}{{128008, "128k"}, {192000, "192k"}, {320000, "320k"}, {900000, "flac"}, {1500000, "flac24bit"}, {0, "128k"}}
 	for _, c := range cases {
 		if got := qualityFromBR(c.br); got != c.qual {
 			t.Errorf("qualityFromBR(%d) = %q, want %q", c.br, got, c.qual)

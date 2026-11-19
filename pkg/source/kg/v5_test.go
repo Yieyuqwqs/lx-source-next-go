@@ -19,7 +19,7 @@ func TestV5Signature(t *testing.T) {
 	if got := q.Get("key"); got != "689828745cab3e437bbe973cb1cb2e5f" {
 		t.Errorf("key = %q", got)
 	}
-	if got := q.Get("signature"); got != "36675ae6573a6778f9fe3e7fb2b7153" {
+	if got := q.Get("signature"); got != "b36675ae6573a6778f9fe3e7fb2b7153" {
 		t.Errorf("signature = %q", got)
 	}
 	if got := q.Get("quality"); got != "flac" {
@@ -62,10 +62,9 @@ func TestParseV5URL(t *testing.T) {
 		t.Errorf("数组形态应取最后一个: link=%q err=%v", link, err)
 	}
 
-	if _, _, err := parseV5URL([]byte(`{"status":2,"error":"no privilege"}`)); err == nil {
+	if _, _, err = parseV5URL([]byte(`{"status":2,"error":"no privilege"}`)); err == nil {
 		t.Error("status 非 1 时必须报错")
-	}
-	if !strings.Contains(err.Error(), "no privilege") {
+	} else if !strings.Contains(err.Error(), "no privilege") {
 		t.Errorf("错误应带上游原因: %v", err)
 	}
 }

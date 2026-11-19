@@ -25,7 +25,7 @@ func TestCookieUIN(t *testing.T) {
 
 // TestURLSendsCredential 配了 Cookie 后：请求要带 uin（不是 0）与 Cookie 头。
 func TestURLSendsCredential(t *testing.T) {
-	d := &fakeDoer{body: []byte(vkeyBody)}
+	d := &fakeDoer{seq: [][]byte{[]byte(infoBody), []byte(vkeyBody)}}
 	c := New(Config{MusicURL: "https://qq.invalid/musics.fcg", Cookie: "uin=o0123456789; qqmusic_key=abc"}, d)
 
 	if _, err := c.URL(context.Background(), "0027oMO61wWi55", "320k"); err != nil {
@@ -42,7 +42,7 @@ func TestURLSendsCredential(t *testing.T) {
 
 // TestURLAnonymousUin 没配 Cookie 时退回匿名 uin=0（服务端会拒，但形状要对）。
 func TestURLAnonymousUin(t *testing.T) {
-	d := &fakeDoer{body: []byte(vkeyBody)}
+	d := &fakeDoer{seq: [][]byte{[]byte(infoBody), []byte(vkeyBody)}}
 	c := New(Config{MusicURL: "https://qq.invalid/musics.fcg"}, d)
 
 	if _, err := c.URL(context.Background(), "0027oMO61wWi55", "128k"); err != nil {
@@ -55,3 +55,6 @@ func TestURLAnonymousUin(t *testing.T) {
 		t.Errorf("匿名时不该带 Cookie: %q", got)
 	}
 }
+
+// infoBody 是 get_song_detail_yqq 的最小响应（取链第一步的曲目信息）。
+const infoBody = `{"req":{"code":0,"data":{"track_info":{"name":"晴天","file":{"media_mid":"003Qui1q2u1Zho"},"pay":{"pay_play":0},"vs":["064YyRNb0gDV4P"]}}}}`

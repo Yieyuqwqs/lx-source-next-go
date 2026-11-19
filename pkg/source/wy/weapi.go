@@ -75,7 +75,7 @@ func weapiLevel(qual string) string {
 // qualityFromBR 把响应里的 br 反解成规范音质。
 func qualityFromBR(br int) string {
 	switch {
-	case br >= 900000:
+	case br >= 1500000:
 		return quality.QFlac24
 	case br >= 500000:
 		return quality.QFlac
