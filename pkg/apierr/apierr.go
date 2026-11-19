@@ -55,7 +55,8 @@ func (c Code) HTTPStatus() int {
 	case CodeNotFound:
 		return http.StatusNotFound
 	}
-	return http.StatusOK
+	// 未知码按服务器错误处理：回 200 会让客户端把错误当成成功
+	return http.StatusInternalServerError
 }
 
 // String 便于日志输出。

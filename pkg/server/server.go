@@ -91,6 +91,9 @@ func (a *App) Handler() http.Handler { return a.handler }
 
 // dynamic 取当前配置快照。
 func (a *App) dynamic() *config.Dynamic {
+	if a.deps.Config == nil {
+		return config.Default()
+	}
 	if s := a.deps.Config.Current(); s != nil && s.Dyn != nil {
 		return s.Dyn
 	}
@@ -201,9 +204,11 @@ func (a *App) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"uptime": time.Since(a.startedAt).Round(time.Second).String(),
 	}
 	// 配置可能在启动瞬间还没有快照，这里不能直接解引用
-	if snap := a.deps.Config.Current(); snap != nil {
-		body["configVersion"] = snap.Version
-		body["configLoaded"] = snap.LoadedAt.Format(time.RFC3339)
+	if a.deps.Config != nil {
+		if snap := a.deps.Config.Current(); snap != nil {
+			body["configVersion"] = snap.Version
+			body["configLoaded"] = snap.LoadedAt.Format(time.RFC3339)
+		}
 	}
 	if a.deps.LogHub != nil {
 		body["logSubscribers"] = a.deps.LogHub.Subscribers()

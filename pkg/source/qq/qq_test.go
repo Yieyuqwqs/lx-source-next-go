@@ -98,9 +98,9 @@ func TestURLFlow(t *testing.T) {
 // TestURLTrialFallback 付费曲目降不到档位时退到试听片段。
 func TestURLTrialFallback(t *testing.T) {
 	infoBody := `{"req":{"code":0,"data":{"track_info":{"name":"晴天","file":{"media_mid":"003Qui1q2u1Zho"},"pay":{"pay_play":1},"vs":["064YyRNb0gDV4P"]}}}}`
-	empty := `{"req_0":{"code":0,"data":{"sip":[],"midurlinfo":[{"purl":"","result":104003}]}}}`
 	trial := `{"req_0":{"code":0,"data":{"sip":["http://aqqmusic.tc.qq.com/"],"midurlinfo":[{"purl":"RS02064YyRNb0gDV4P.mp3?vkey=ABC","result":0}]}}}`
-	d := &fakeDoer{seq: [][]byte{[]byte(infoBody), []byte(empty), []byte(empty), []byte(empty), []byte(empty), []byte(trial)}}
+	// 付费且无凭据：应当只请求两次（曲目信息 + 试听），不再白打正常档位
+	d := &fakeDoer{seq: [][]byte{[]byte(infoBody), []byte(trial)}}
 	c := New(Config{MusicURL: "https://qq.invalid/musics.fcg"}, d)
 
 	li, err := c.URL(context.Background(), "0039MnYb0qxYhV", "flac24bit")
@@ -109,6 +109,9 @@ func TestURLTrialFallback(t *testing.T) {
 	}
 	if !strings.Contains(li.Link, "RS02") {
 		t.Errorf("应退到试听片段，Link = %q", li.Link)
+	}
+	if len(d.reqs) != 2 {
+		t.Errorf("付费且无凭据时应只发 2 次请求，实际 %d 次", len(d.reqs))
 	}
 }
 

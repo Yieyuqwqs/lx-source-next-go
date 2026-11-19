@@ -186,8 +186,11 @@ func (c *Client) Search(ctx context.Context, keyword string, page, size int) (so
 	if page <= 0 {
 		page = 1
 	}
-	if size <= 0 || size > 50 {
+	if size <= 0 {
 		size = 10
+	}
+	if size > 50 {
+		size = 50
 	}
 	q := url.Values{}
 	q.Set("w", keyword)

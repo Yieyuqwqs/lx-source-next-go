@@ -133,12 +133,13 @@ func (h *Hub) Subscribe(buf int) (<-chan Record, func()) {
 	h.subs[id] = c
 	h.mu.Unlock()
 
+	// 注意：这里绝不能 close(ch)。
+	// publish 是在锁外非阻塞发送的，如果 cancel 关掉了通道，
+	// 正在发送的那个 goroutine 会直接 panic（send on closed channel）。
+	// 订阅者退出后通道无人接收会被垃圾回收，不需要显式关闭。
 	cancel := func() {
 		h.mu.Lock()
-		if ch, ok := h.subs[id]; ok {
-			delete(h.subs, id)
-			close(ch)
-		}
+		delete(h.subs, id)
 		h.mu.Unlock()
 	}
 	return c, cancel

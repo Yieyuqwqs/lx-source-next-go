@@ -1,6 +1,9 @@
 package cache
 
-import "sync"
+import (
+	"fmt"
+	"sync"
+)
 
 // Group 合并同一时刻针对同一个键的重复加载。
 //
@@ -38,8 +41,13 @@ func (g *Group) Do(key string, fn func() ([]byte, error)) ([]byte, error) {
 	g.m[key] = c
 	g.mu.Unlock()
 
-	// 保证即使 fn panic 也能唤醒等待者并清理表项
+	// 保证即使 fn panic 也能唤醒等待者并清理表项；
+	// 关键：panic 时必须给等待者一个错误，否则它们会拿到 (nil, nil)。
 	defer func() {
+		if p := recover(); p != nil {
+			c.data = nil
+			c.err = fmt.Errorf("cache: 加载过程 panic: %v", p)
+		}
 		g.mu.Lock()
 		delete(g.m, key)
 		g.mu.Unlock()

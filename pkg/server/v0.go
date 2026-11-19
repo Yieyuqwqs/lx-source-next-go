@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"crypto/md5"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -106,7 +108,7 @@ func (a *App) v0URL(w http.ResponseWriter, r *http.Request, src source.Source, i
 			q = norm
 		}
 	}
-	key := internalPrefix + src.Src() + "/" + id + "-" + orDefault(q, "default") + ".url"
+	key := internalPrefix + src.Src() + "/" + cacheKeySegment(id) + "-" + orDefault(q, "default") + ".url"
 	load := func(ctx context.Context) ([]byte, error) {
 		li, err := src.URL(ctx, id, quality)
 		if err != nil {
@@ -154,7 +156,7 @@ func (a *App) v0URL(w http.ResponseWriter, r *http.Request, src source.Source, i
 
 // v0Lyric 处理取歌词。带 jmp 时直接吐出纯文本，便于浏览器/播放器直接使用。
 func (a *App) v0Lyric(w http.ResponseWriter, r *http.Request, src source.Source, id string, jmp bool) {
-	key := internalPrefix + src.Src() + "/" + id + ".lrc"
+	key := internalPrefix + src.Src() + "/" + cacheKeySegment(id) + ".lrc"
 	// 歌词没有音质概念，Quality 留空即按「可缓存」处理
 	raw, err := a.cachedJSON(r.Context(), key, cache.Meta{Source: src.Src()},
 		func(ctx context.Context) ([]byte, error) {
@@ -294,4 +296,28 @@ func (a *App) failWithErrorAudio(w http.ResponseWriter, r *http.Request, err err
 		return
 	}
 	httpx.Fail(w, err)
+}
+
+// cacheKeySegment 把任意歌曲 id 变成合法的缓存键片段。
+//
+// 缓存驱动只接受字母数字与 .-_，而线上的 id 可能带冒号、斜杠、空格；
+// 直接拼进键会让每一次存取都返回 ErrInvalidKey（既不缓存还刷日志）。
+// 非法形态统一回退成 md5 十六进制，稳定且不会碰撞到合法 id。
+func cacheKeySegment(s string) string {
+	ok := s != "" && len(s) <= 128
+	if ok {
+		for i := 0; i < len(s); i++ {
+			c := s[i]
+			if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '.' || c == '-' || c == '_' {
+				continue
+			}
+			ok = false
+			break
+		}
+	}
+	if ok {
+		return s
+	}
+	sum := md5.Sum([]byte(s))
+	return hex.EncodeToString(sum[:])
 }

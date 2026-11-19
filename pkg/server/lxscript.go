@@ -23,18 +23,17 @@ const lxScriptName = "lx-source-next"
 // 地址在返回时按请求推导（支持反向代理头），
 // 密钥可按需注入，因此同一份模板能适配不同部署。
 func (a *App) handleLXScript(w http.ResponseWriter, r *http.Request) {
-	script := lxScriptTemplate
-	for _, rep := range []struct{ key, val string }{
-		{"__API_ADDR__", a.baseURL(r) + "/api/v0"},
-		{"__API_KEY__", a.lxScriptKey(r)},
-		{"__NAME__", lxScriptName},
-		{"__DESC__", "自建解析源，支持酷我"},
-		{"__VERSION__", lxScriptVersion},
-	} {
-		// 值来自请求（Host、key 查询参数），必须转义后再嵌进 JS 字面量，
-		// 否则一个带单引号的 key 就能闭合字符串、注入任意代码。
-		script = strings.ReplaceAll(script, rep.key, jsString(rep.val))
-	}
+	// 用 Replacer 而不是连着 ReplaceAll：单遍替换，
+	// 免得某个值里恰好含有另一个占位符（例如 key 里写了 __NAME__）被二次替换。
+	// 值来自请求（Host、key 查询参数），必须转义后再嵌进 JS 字面量，
+	// 否则一个带单引号的 key 就能闭合字符串、注入任意代码。
+	script := strings.NewReplacer(
+		"__API_ADDR__", jsString(a.baseURL(r)+"/api/v0"),
+		"__API_KEY__", jsString(a.lxScriptKey(r)),
+		"__NAME__", jsString(lxScriptName),
+		"__DESC__", jsString("自建解析源，支持酷我/酷狗/咪咕/网易云/QQ"),
+		"__VERSION__", jsString(lxScriptVersion),
+	).Replace(lxScriptTemplate)
 
 	h := w.Header()
 	h.Set("Content-Type", "application/javascript; charset=utf-8")

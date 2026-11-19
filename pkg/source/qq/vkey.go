@@ -62,6 +62,7 @@ func ladderFrom(qual string) []qqFile {
 // trackInfo 只保留取链真正要用的字段。
 type trackInfo struct {
 	MediaMid string
+	PayPlay  int
 	VS       []string
 }
 
@@ -151,7 +152,7 @@ func (c *Client) songInfo(ctx context.Context, mid string) (trackInfo, error) {
 	if ti.Name == "" && ti.File.MediaMid == "" {
 		return trackInfo{}, apierr.New(apierr.CodeUnavailable, "qq: 曲目信息为空（mid 可能无效）")
 	}
-	out := trackInfo{MediaMid: ti.File.MediaMid, VS: ti.VS}
+	out := trackInfo{MediaMid: ti.File.MediaMid, PayPlay: ti.Pay.PayPlay, VS: ti.VS}
 	return out, nil
 }
 
@@ -201,18 +202,23 @@ func (c *Client) urlTx(ctx context.Context, mid, qual string) (source.LinkInfo, 
 		mediaMid = mid
 	}
 
+	// 付费曲目 + 没有凭据：正常档位一定回 104003，别再白打四枪，直接试听
+	paidWithoutKey := info.PayPlay == 1 && strings.TrimSpace(c.cfg.Ukey) == ""
+
 	var lastErr error
-	for _, f := range ladderFrom(qual) {
-		link, err := c.vkeyOnce(ctx, mid, f.prefix+mediaMid+"."+f.ext)
-		if err != nil {
-			lastErr = err
-			continue
+	if !paidWithoutKey {
+		for _, f := range ladderFrom(qual) {
+			link, err := c.vkeyOnce(ctx, mid, f.prefix+mediaMid+"."+f.ext)
+			if err != nil {
+				lastErr = err
+				continue
+			}
+			return source.LinkInfo{
+				Qual: f.qual,
+				Expi: c.now().Add(c.cfg.Expire).Unix(),
+				Link: link,
+			}, nil
 		}
-		return source.LinkInfo{
-			Qual: f.qual,
-			Expi: c.now().Add(c.cfg.Expire).Unix(),
-			Link: link,
-		}, nil
 	}
 
 	// 付费曲目匿名只给试听片段：RS02 + vs 文件名

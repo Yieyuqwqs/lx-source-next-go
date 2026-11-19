@@ -94,6 +94,17 @@ func (r *Reader) Get(ctx context.Context, key string, m Meta, load ReadFunc) ([]
 		return data, err
 	}
 
+	if r.c == nil {
+		// 没配缓存实现：当作永久未命中
+		r.misses.Add(1)
+		r.loads.Add(1)
+		data, err := load(ctx)
+		if err != nil {
+			r.errs.Add(1)
+		}
+		return data, err
+	}
+
 	if data, ok, err := r.c.Get(ctx, key); err != nil {
 		// 缓存故障不应影响主流程，降级为直读上游
 		r.logger.Warn("缓存读取失败，降级直读上游", "key", key, "err", err)

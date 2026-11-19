@@ -151,7 +151,8 @@ type searchAll struct {
 	Code    string `json:"code"`
 	Info    string `json:"info"`
 	SongRes struct {
-		Result []struct {
+		TotalCount string `json:"totalCount"`
+		Result     []struct {
 			ContentID   string `json:"contentId"`
 			CopyrightID string `json:"copyrightId"`
 			Name        string `json:"name"`
@@ -179,8 +180,11 @@ func (c *Client) Search(ctx context.Context, keyword string, page, size int) (so
 	if page <= 0 {
 		page = 1
 	}
-	if size <= 0 || size > 50 {
+	if size <= 0 {
 		size = 10
+	}
+	if size > 50 {
+		size = 50
 	}
 
 	q := url.Values{}
@@ -232,7 +236,11 @@ func (c *Client) Search(ctx context.Context, keyword string, page, size int) (so
 		out.Items = append(out.Items, item)
 		c.remember(it.ContentID, it.CopyrightID)
 	}
-	out.Total = len(out.Items)
+	if n, err := strconv.Atoi(strings.TrimSpace(resp.SongRes.TotalCount)); err == nil && n > 0 {
+		out.Total = n
+	} else {
+		out.Total = len(out.Items)
+	}
 	return out, nil
 }
 

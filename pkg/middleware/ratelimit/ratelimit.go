@@ -170,6 +170,13 @@ func (m *Memory) Allow(key string, limit int, window time.Duration) (bool, time.
 	}
 	if len(m.entries) > m.maxIdle {
 		m.sweep(now)
+		// 全是活跃条目时也不能无限增长：淘汰任意一条，保证内存有上界
+		for len(m.entries) > m.maxIdle {
+			for k := range m.entries {
+				delete(m.entries, k)
+				break
+			}
+		}
 	}
 	return allowed, retry
 }

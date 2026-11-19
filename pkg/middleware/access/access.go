@@ -49,8 +49,14 @@ func (c *compiler) get(cfg Config) (*policy, error) {
 	k := cfg.key()
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.last != nil && c.lastKey == k {
-		return c.last, nil
+	if c.lastKey == k {
+		if c.last != nil {
+			return c.last, nil
+		}
+		if c.lastErr != nil {
+			// 上次就是这个配置且编译失败：直接复用错误，别每请求重解析
+			return nil, c.lastErr
+		}
 	}
 	g, err := ipguard.New(ipguard.Config{
 		Allow:  cfg.White,
