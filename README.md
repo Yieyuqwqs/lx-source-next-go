@@ -6,7 +6,7 @@ LX Music 自定义源后端，从零重建：**五个平台的搜索与取链都
 **只依赖一个第三方库**（`go-toml/v2`）：AES/HMAC/RSA、DES、zlib、XML、netip、slog、HTTP 服务
 全部走标准库手写。
 
-架构说明见 [ARCHITECTURE.md](ARCHITECTURE.md) · 更新日志见 [CHANGELOG.md](CHANGELOG.md) · 真机验收见 [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md)
+架构说明见 [ARCHITECTURE.md](ARCHITECTURE.md) · 更新日志见 [CHANGELOG.md](CHANGELOG.md) · 真机验收见 [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md) · 交接见 [docs/HANDOFF.md](docs/HANDOFF.md)
 
 ---
 
