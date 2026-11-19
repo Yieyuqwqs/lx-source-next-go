@@ -163,6 +163,21 @@ printf '### 网易云 wy（eapi 取链）\n'
 show "wy 取链" "$BASE/api/v0/url/wy/347230/320k"
 
 line
+printf '### 逐首实验：搜索出来的歌到底有几首能放\n'
+for pt in wy tx; do
+  printf '\n[%s] 搜索后逐个试取链：\n' "$pt"
+  curl -sS "$BASE/api/v1/search?pt=$pt&q=%E5%91%A8%E6%9D%B0%E4%BC%A6&sz=4" -o /tmp/s_$pt.json 2>/dev/null
+  grep -oE '"id":"[0-9A-Za-z]+"' /tmp/s_$pt.json | sed -E 's/.*:"([^"]+)"/\1/' > /tmp/ids_$pt.txt
+  n=0
+  while read -r ID; do
+    [ -z "$ID" ] && continue
+    n=$((n + 1))
+    printf '  %d) %-20s → ' "$n" "$ID"
+    curl -sS -o /dev/null -w 'HTTP %{http_code}\n' "$BASE/api/v0/url/$pt/$ID/128k"
+  done < /tmp/ids_$pt.txt
+done
+
+line
 printf '### 服务端日志尾部\n'
 tail -25 /tmp/lxsrcs.log
 

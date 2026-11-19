@@ -46,12 +46,12 @@ type Doer interface {
 
 // Config 是接入参数。
 type Config struct {
-	Src       string
+	Src        string
 	SearchBase string
-	VkeyURL   string
-	UserAgent string
-	Referer   string
-	Expire    time.Duration
+	VkeyURL    string
+	UserAgent  string
+	Referer    string
+	Expire     time.Duration
 }
 
 // Client 实现 source.Source 与 source.Searcher。
@@ -99,10 +99,10 @@ func (c *Client) Src() string { return c.cfg.Src }
 //
 // 服务端对 320k 的匿名请求常常不响应，listen1 也据此默认降到 128k。
 var fileConfig = map[string]struct{ prefix, ext, canonical string }{
-	quality.Q128:   {"M500", ".mp3", quality.Q128},
-	quality.Q320:   {"M800", ".mp3", quality.Q320},
-	quality.QFlac:  {"F000", ".flac", quality.QFlac},
-	quality.QFlac24: {"F000", ".flac", quality.QFlac},
+	quality.Q128:    {"M500", ".mp3", quality.Q128},
+	quality.Q320:    {"M800", ".mp3", quality.Q320},
+	quality.QFlac:   {"F000", ".flac", quality.QFlac},
+	quality.QFlac24: {"F000", ".flac", quality.QFlac24},
 }
 
 // URL 实现 source.Source：用 songmid 取直链。
@@ -134,18 +134,21 @@ func (c *Client) URL(ctx context.Context, id, q string) (source.LinkInfo, error)
 			"module": "vkey.GetVkeyServer",
 			"method": "CgiGetVkey",
 			"param": map[string]any{
-				"filename":   []string{filename},
-				"guid":       guid,
-				"songmid":    []string{id},
-				"songtype":   []int{0},
-				"uin":        "0",
-				"loginflag":  1,
-				"platform":   "20",
+				"filename":  []string{filename},
+				"guid":      guid,
+				"songmid":   []string{id},
+				"songtype":  []int{0},
+				"uin":       "0",
+				"loginflag": 1,
+				"platform":  "20",
 			},
 		},
 		"loginUin": "0",
 		"comm": map[string]any{
-			"uin": "0", "format": "json", "ct": 24, "cv": 0,
+			"uin":    "0",
+			"format": "json",
+			"ct":     24,
+			"cv":     0,
 		},
 	}
 

@@ -32,16 +32,17 @@ func TestEapiParamsEmptyPath(t *testing.T) {
 }
 
 func TestBitrateFor(t *testing.T) {
+	// 键为规范音质或别名，值为期望的 br 与规范音质
 	cases := map[string]struct {
 		br   int
 		qual string
 	}{
-		"128k":     {128000, "128k"},
-		"320k":     {320000, "320k"},
-		"flac":     {999000, "flac"},
+		"128k":      {128000, "128k"},
+		"320k":      {320000, "320k"},
+		"flac":      {999000, "flac"},
 		"flac24bit": {1999000, "flac24bit"},
-		"hires":    {1999000, "flac24bit"}, // 别名
-		"nonsense": {128000, "128k"},       // 未知回落
+		"hires":     {1999000, "flac24bit"},
+		"nonsense":  {128000, "128k"},
 	}
 	for in, want := range cases {
 		br, q := bitrateFor(in)
@@ -50,6 +51,7 @@ func TestBitrateFor(t *testing.T) {
 		}
 	}
 }
+
 
 func TestParsePlayerURL(t *testing.T) {
 	ok := `{"data":[{"id":347230,"url":"http://m8.music.126.net/a.mp3","br":320000,"code":200}]}`
