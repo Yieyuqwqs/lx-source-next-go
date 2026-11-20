@@ -66,6 +66,12 @@ func TestLXScriptServed(t *testing.T) {
 	if !strings.Contains(body, "const API_KEY = ''") {
 		t.Errorf("未启用密钥时 API_KEY 应为空")
 	}
+	// 五个平台都必须声明成歌词源（v0.1.9 起酷我也有了）
+	for _, pt := range []string{"kw", "kg", "mg", "tx", "wy"} {
+		if !strings.Contains(body, pt+": true") {
+			t.Errorf("脚本里缺少歌词源 %s", pt)
+		}
+	}
 	// 占位符不应残留
 	for _, ph := range lxScriptPlaceholders {
 		if strings.Contains(body, ph) {

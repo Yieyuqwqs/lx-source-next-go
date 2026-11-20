@@ -208,9 +208,13 @@ func (c *Client) URL(ctx context.Context, id, q string) (source.LinkInfo, error)
 	if err := c.ready(); err != nil {
 		return source.LinkInfo{}, err
 	}
-	id = strings.TrimSpace(id)
+	id = trimMusicID(id)
 	if id == "" {
 		return source.LinkInfo{}, apierr.New(apierr.CodeBadRequest, "缺少音乐 ID")
+	}
+	if !validRID(id) {
+		// 见 validRID 的注释：放行等于把一份不相干的音频当成成功返回
+		return source.LinkInfo{}, apierr.Newf(apierr.CodeBadRequest, "酷我 id 必须是纯数字，收到 %q", id)
 	}
 	br, canonical, ok := c.resolveQuality(q)
 	if !ok {
@@ -335,6 +339,25 @@ func trimMusicID(id string) string {
 		id = id[6:]
 	}
 	return strings.TrimSpace(id)
+}
+
+// validRID 判断酷我的音乐 id 是否合法：纯数字、不超过 12 位。
+//
+// 这条校验不是洁癖，是实测出来的：antiserver 对**任何** rid 都回 200，
+// 而且给的是同一个固定样例文件（`nf/resource/n1/69/32/588957081.mp3`）。
+// 一旦把别的平台的 id（比如 QQ 的 songmid）传进来，我们就会「成功地」
+// 返回一段不相干的音频，播放器表现是缓冲一下然后换源失败——
+// 比直接报错难查得多。宁可 400，也不要 200 + 错文件。
+func validRID(id string) bool {
+	if id == "" || len(id) > 12 {
+		return false
+	}
+	for i := 0; i < len(id); i++ {
+		if id[i] < '0' || id[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // errNotImplemented 表示能力尚未接入。

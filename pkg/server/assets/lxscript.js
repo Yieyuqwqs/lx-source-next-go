@@ -82,8 +82,8 @@ function musicUrlOf(pt) {
   }
 }
 
-// 哪些源提供歌词（酷我公开歌词入口已失效，故不在其中）
-const LYRIC_SOURCES = { kg: true, mg: true, tx: true, wy: true }
+// 哪些源提供歌词（五个平台都已接入；酷我走 mlyric，匿名可用）
+const LYRIC_SOURCES = { kw: true, kg: true, mg: true, tx: true, wy: true }
 
 // 歌词：服务端统一返回 {lyric, tlyric, rlyric, lxlyric}
 function lyricOf(pt) {

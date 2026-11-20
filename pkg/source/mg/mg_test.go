@@ -112,6 +112,52 @@ func TestURLFallsBack(t *testing.T) {
 	}
 }
 
+// TestURLWithoutRememberedCopyright 没搜过的歌也要能取链。
+//
+// 换源点播、或进程重启后再点，都会命中这条路径：早期版本在这里直接 503，
+// 播放器侧表现就是「换源失败」。现在用占位值 "0" 走匿名。
+func TestURLWithoutRememberedCopyright(t *testing.T) {
+	var gotCR string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotCR = r.URL.Query().Get("copyrightId")
+		w.Header().Set("Location", "https://freetyst.example/anon.mp3")
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer srv.Close()
+
+	c := New(Config{Base: srv.URL}, nil) // 故意不 remember
+	li, err := c.URL(context.Background(), "cid", "128k")
+	if err != nil {
+		t.Fatalf("URL: %v", err)
+	}
+	if gotCR != anonymousCopyrightID {
+		t.Errorf("copyrightId = %q，want %q", gotCR, anonymousCopyrightID)
+	}
+	if li.Link != "https://freetyst.example/anon.mp3" {
+		t.Errorf("Link = %q", li.Link)
+	}
+}
+
+// TestURLPrefersRememberedCopyright 搜过的歌用真实 copyrightId。
+func TestURLPrefersRememberedCopyright(t *testing.T) {
+	var gotCR string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotCR = r.URL.Query().Get("copyrightId")
+		w.Header().Set("Location", "https://freetyst.example/real.mp3")
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer srv.Close()
+
+	c := New(Config{Base: srv.URL}, nil)
+	c.remember("cid", "crid")
+	if _, err := c.URL(context.Background(), "cid", "128k"); err != nil {
+		t.Fatalf("URL: %v", err)
+	}
+	if gotCR != "crid" {
+		t.Errorf("copyrightId = %q，want crid", gotCR)
+	}
+}
+
 // TestToneMapping 音质与 toneFlag 的双向映射。
 func TestToneMapping(t *testing.T) {
 	cases := []struct{ qual, tone string }{

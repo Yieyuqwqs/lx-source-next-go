@@ -141,6 +141,10 @@ POST /repos/:repo/git/refs  {"ref":"refs/tags/vX.Y.Z","sha":"<main head>"}
 16. **同一 id 反复请求结果不同 = CDN 节点差异，不是限流**：`m.kuwo.cn/newh5/singles/songinfoandlrc`
     会随机回 `音乐查询失败`（同一个 id 6 次里成 2 次），加 `httpsStatus=1`、换 UA/Referer、加随机参数都不治本；
     别拿单次失败当「接口失效」，换宿主（`mlyric`）才是解。
+17. **取链不能有「搜索结果」前置状态**：咪咕 `listenSong` 要 copyrightId，旧实现把它记在进程内存，
+    记不住就直接 503 —— 于是「刚搜过的能放、换源过来的秒挂」，日志里表现为 **0ms 的 503**。
+    正解是把状态当优化不当门槛（`copyrightId=0` 实测与真值等价）。
+    **看到一个 0ms 的 503，先怀疑本地校验短发，而不是上游挂**。
 
 ---
 

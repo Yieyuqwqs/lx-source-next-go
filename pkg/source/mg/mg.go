@@ -34,6 +34,12 @@ const (
 	DefaultChannel = "014000D"
 	// DefaultUserID 是匿名请求用的占位用户号。
 	DefaultUserID = "15512345678"
+	// anonymousCopyrightID 是没记录到 copyrightId 时的占位值。
+	//
+	// 实测咪咕接受 "0"：免费曲目照样 302 出链，受限曲目回「暂不提供试听地址」，
+	// 与真实 copyrightId 的结果一致。早期版本缺了它就立刻 503，
+	// 结果「换源」过来点播必失败（日志里 0ms 的 503 就是它）。
+	anonymousCopyrightID = "0"
 	// maxBody 响应体上限。
 	maxBody = 8 << 20
 )
@@ -257,8 +263,9 @@ func (c *Client) URL(ctx context.Context, id, qual string) (source.LinkInfo, err
 	}
 	cr := c.copyrightOf(id)
 	if cr == "" {
-		return source.LinkInfo{}, apierr.New(apierr.CodeUnavailable,
-			"mg: 缺少 copyrightId（该 contentId 不是本次进程搜索出来的，先搜一次再点播放）")
+		// 没见过这首（换源点播、或进程重启后才点）：用占位值走匿名，
+		// 别在这里直接 503——那等于「只有刚刚搜过的歌能放」。
+		cr = anonymousCopyrightID
 	}
 
 	var lastErr error

@@ -13,7 +13,10 @@ import (
 var lxScriptTemplate string
 
 // lxScriptVersion 是自定义源脚本的版本号。
-const lxScriptVersion = "0.1.7"
+//
+// 播放器不会自动更新脚本：能力表变了（比如这次给酷我加回歌词）必须同步改这里，
+// 提醒使用者重新导入 /api/v0/lx-script.js。
+const lxScriptVersion = "0.1.10"
 
 // lxScriptName 是自定义源在播放器里显示的名字。
 const lxScriptName = "lx-source-next"

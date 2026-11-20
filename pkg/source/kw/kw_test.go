@@ -268,6 +268,40 @@ func TestClientURLSuccess(t *testing.T) {
 	}
 }
 
+// TestURLRejectsNonNumericID 拦住「别的平台的 id」。
+//
+// antiserver 对任何 rid 都回 200 + 同一份固定样例文件，
+// 所以放行非数字 id 等于把错文件当成功返回（播放器侧：缓冲一下就换源失败）。
+func TestURLRejectsNonNumericID(t *testing.T) {
+	d := &fakeDoer{body: "https://kw.invalid/x.mp3\n"}
+	c := New(Config{Strategy: StrategyAnti, BaseURL: "https://kw.invalid"}, d)
+
+	for _, id := range []string{"0027oMO61wWi55", "abc", "12a4", "1145852190x", strings.Repeat("1", 13)} {
+		_, err := c.URL(context.Background(), id, "128k")
+		if err == nil {
+			t.Errorf("%q 应被拒绝", id)
+			continue
+		}
+		if e, ok := apierr.From(err); !ok || e.Code != apierr.CodeBadRequest {
+			t.Errorf("%q 的错误码不是 400: %v", id, err)
+		}
+	}
+	if len(d.reqs) != 0 {
+		t.Errorf("非法 id 不该发起上游请求，实际 %d 次", len(d.reqs))
+	}
+
+	// 数字 id 放行，MUSIC_ 前缀要能剥掉
+	if _, err := c.URL(context.Background(), "MUSIC_228908", "128k"); err != nil {
+		t.Fatalf("合法 id 应放行: %v", err)
+	}
+	if len(d.reqs) != 1 {
+		t.Fatalf("合法 id 应发一次请求，实际 %d 次", len(d.reqs))
+	}
+	if got := d.reqs[0].URL.Query().Get("rid"); got != "MUSIC_228908" {
+		t.Errorf("rid = %q", got)
+	}
+}
+
 func TestClientUpstreamErrors(t *testing.T) {
 	// 上游非 200
 	c := New(Config{BaseURL: "https://x.invalid", Key: testKey}, &fakeDoer{status: 502})
