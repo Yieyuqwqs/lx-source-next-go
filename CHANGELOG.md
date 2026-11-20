@@ -1,5 +1,25 @@
 # 更新日志
 
+## v0.1.9 — 酷我歌词：换个宿主就通了
+
+上一版矩阵里唯一的 ❌ 是酷我歌词。之前按「mobi 策略要 8 字节 DES 密钥」去找，
+方向就错了：取链才用 DES，歌词在另一个宿主上，而且匿名可用。
+
+| 项 | 之前 | 现在 |
+|---|---|---|
+| 入口 | `m.kuwo.cn/newh5/singles/songinfoandlrc`（间歇 `音乐查询失败`） | `mlyric.kuwo.cn/mobi.s?f=web&type=lyric&lrcx=0&rid=` |
+| 凭据 | 以为要 8 字节 DES 密钥 | 不需要，匿名 |
+| 包装 | 猜是 JSON | 三段式：`TP=content\r\nlrcx=1\r\n\r\n` + zlib(Base64(明文 XOR `yeelion`)) |
+| 策略依赖 | 只在 mobi 策略下才试 | 与取链策略解耦，anti 下同样可用 |
+
+其他：
+
+- 新增纯函数 `ParseLyricPayload`（zlib 解压 → Base64 → 7 字节循环异或 → 剥逐字标记），
+  带黄金值测试：102 字节样本 + 明文，三段中任一环写错都会立刻失败
+- 上游明确「没有歌词」时返回 `TP=none`，新增 `ErrNoLyric` 与解析失败区分开（都映射 503，但不留假成功的缓存）
+- 删除此前按猜测写的 `ParseLyric`（JSON 形态）与 `Config.PathLyric`，换成 `Config.LyricBaseURL`
+- 歌词 id 容忍 `MUSIC_` 前缀；空 id 不发请求直接回参数错误
+
 ## v0.1.8 — 补齐歌词：酷狗 / QQ / 咪咕
 
 上版只有网易云有歌词，这一版把另外三家也接上了（全部匿名可用，实测通过）：

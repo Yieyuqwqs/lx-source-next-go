@@ -1,9 +1,14 @@
 package kw
 
 import (
+	"bytes"
+	"compress/zlib"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -89,52 +94,92 @@ func ParseConvertURL(body []byte) (ConvertURLResult, error) {
 	return res, nil
 }
 
-// LyricResult 是解析出的歌词。
-type LyricResult struct {
-	// Lyric 是普通歌词文本。
-	Lyric string
-	// TLyric 是翻译歌词，可能为空。
-	TLyric string
+// ErrNoLyric 表示上游明确回答「这首歌没有歌词」。
+//
+// 与解析失败要分开：这是正常业务结果，不是上游改版，
+// 上层据此回 503 而不是把空歌词当成成功缓存起来。
+var ErrNoLyric = errors.New("kw: 该曲目没有歌词")
+
+// lyricXorKey 是歌词载荷的固定异或密钥。
+//
+// 注意它只有 7 字节（yeelion = 酷我的运营公司），不是 DES 密钥；
+// 早前按「8 字节 DES」去找密钥的方向是错的，真实链路根本没用 DES。
+const lyricXorKey = "yeelion"
+
+// lyricWordTag 匹配逐字歌词里的 <起始,时长> 标记。
+var lyricWordTag = regexp.MustCompile(`<-?\d+,-?\d+>`)
+
+// lyricTimeTag 用于确认正文里确实有时间轴。
+var lyricTimeTag = regexp.MustCompile(`\[\d{1,3}:\d{1,2}[.:]\d{1,3}\]`)
+
+// ParseLyricPayload 解析 mlyric 的歌词响应。
+//
+// 响应是三段式，头部两行以 \r\n\r\n 结束，之后跟 zlib 流：
+//
+//	TP=content\r\nlrcx=1\r\n\r\n<zlib>
+//	TP=none\n                    ← 该曲目没有歌词
+//
+// zlib 解压出来是 Base64 文本，按 7 字节密钥循环异或后得到 UTF-8 的 LRC。
+// 请求里带 lrcx=0 时上游回的是纯文本行（无逐字标记）；
+// 若某天又回了逐字版本，这里会把 <起始,时长> 标记剥掉，仍得到可播的 LRC。
+func ParseLyricPayload(body []byte) (string, error) {
+	if len(body) == 0 {
+		return "", errors.New("kw: 空响应")
+	}
+	switch {
+	case bytes.HasPrefix(body, []byte("TP=none")):
+		return "", ErrNoLyric
+	case !bytes.HasPrefix(body, []byte("TP=content")):
+		return "", fmt.Errorf("kw: 歌词响应头非法: %.32q", body)
+	}
+
+	sep := bytes.Index(body, []byte("\r\n\r\n"))
+	if sep < 0 {
+		return "", errors.New("kw: 歌词响应缺少分节")
+	}
+	zr, err := zlib.NewReader(bytes.NewReader(body[sep+4:]))
+	if err != nil {
+		return "", fmt.Errorf("kw: 歌词载荷不是 zlib: %w", err)
+	}
+	defer zr.Close()
+	packed, err := io.ReadAll(io.LimitReader(zr, maxBody))
+	if err != nil {
+		return "", fmt.Errorf("kw: 解压歌词失败: %w", err)
+	}
+
+	raw, err := decodeLyricB64(strings.TrimSpace(string(packed)))
+	if err != nil {
+		return "", err
+	}
+	for i := range raw {
+		raw[i] ^= lyricXorKey[i%len(lyricXorKey)]
+	}
+
+	lrc := lyricWordTag.ReplaceAllString(string(raw), "")
+	lrc = strings.ReplaceAll(lrc, "\r\n", "\n")
+	lrc = strings.TrimSpace(lrc)
+	if lrc == "" {
+		return "", ErrNoLyric
+	}
+	if !lyricTimeTag.MatchString(lrc) {
+		return "", fmt.Errorf("kw: 歌词里没有时间标签: %.32q", lrc)
+	}
+	return lrc + "\n", nil
 }
 
-// ParseLyric 解析歌词响应。
-//
-// 已知形态：
-//
-//	{"code":200,"data":{"lyric":"[00:01.00]...","tlyric":"..."}}
-//	{"code":200,"data":"[00:01.00]..."}
-//
-// 返回的文本一律原样透出，不在这里做格式转换——
-// 格式转换属于 lrcutil 的职责。
-func ParseLyric(body []byte) (LyricResult, error) {
-	if len(bytesTrimSpace(body)) == 0 {
-		return LyricResult{}, errors.New("kw: 空响应")
+// decodeLyricB64 解 Base64，兼容上游偶发省略尾部填充的情况。
+func decodeLyricB64(s string) ([]byte, error) {
+	if s == "" {
+		return nil, errors.New("kw: 歌词载荷为空")
 	}
-	var top map[string]any
-	if err := json.Unmarshal(body, &top); err != nil {
-		return LyricResult{}, fmt.Errorf("kw: 响应不是 JSON: %w", err)
+	if raw, err := base64.StdEncoding.DecodeString(s); err == nil {
+		return raw, nil
 	}
-	if code, ok := top["code"]; ok {
-		if n, ok := toInt(code); ok && n != 0 && n != 200 {
-			return LyricResult{}, fmt.Errorf("kw: 上游返回 code=%d", n)
-		}
+	raw, err := base64.RawStdEncoding.DecodeString(strings.TrimRight(s, "="))
+	if err != nil {
+		return nil, fmt.Errorf("kw: 歌词 Base64 解码失败: %w", err)
 	}
-
-	var out LyricResult
-	switch data := top["data"].(type) {
-	case string:
-		out.Lyric = data
-	case map[string]any:
-		out.Lyric = pickString(data, []string{"lyric", "lrc", "content"})
-		out.TLyric = pickString(data, []string{"tlyric", "trans", "translation"})
-	}
-	if out.Lyric == "" {
-		out.Lyric = pickString(top, []string{"lyric", "lrc"})
-	}
-	if out.Lyric == "" {
-		return LyricResult{}, ErrUnsupportedShape
-	}
-	return out, nil
+	return raw, nil
 }
 
 func pickString(m map[string]any, keys []string) string {

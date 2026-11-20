@@ -2,6 +2,8 @@ package kw
 
 import (
 	"context"
+	"encoding/base64"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +18,23 @@ import (
 )
 
 var testKey = []byte("12345678")
+
+// sampleLyricPayloadB64 是一份按真实链路构造的歌词响应（102 字节）。
+//
+// 明文："[ti:test]\n[ar:test]\n[00:01.00]hello\n[00:02.50]world\n"
+// 它是黄金值：三段包装（头部 + zlib + Base64 + 7 字节异或）任何一处写错，
+// 解码结果都会变味，因此不必再另外导出中间态。
+const sampleLyricPayloadB64 = "VFA9Y29udGVudA0KbHJjeD0xDQoNCnic88xw9Q3LMPD2CDQwSapK9vQIC/RzdIqM9HMPNQwOC0uLcMtwisjONnEJzHZzLHerCsgJSw41tEwOM3QK8w0ycfRwCnVKKre1BQA8lBaa"
+
+// sampleLyricPayload 返回解码后的样本请求体。
+func sampleLyricPayload(t *testing.T) []byte {
+	t.Helper()
+	b, err := base64.StdEncoding.DecodeString(sampleLyricPayloadB64)
+	if err != nil {
+		t.Fatalf("样本 Base64 解码失败: %v", err)
+	}
+	return b
+}
 
 func TestDesRoundTrip(t *testing.T) {
 	cases := []string{"a", "hello world", "type=convert_url2&rid=123", strings.Repeat("x", 200)}
@@ -126,16 +145,36 @@ func TestParseConvertURLErrors(t *testing.T) {
 	}
 }
 
-func TestParseLyric(t *testing.T) {
-	res, err := ParseLyric([]byte(`{"code":200,"data":{"lyric":"[00:01.00]a","tlyric":"[00:01.00]A"}}`))
+func TestParseLyricPayload(t *testing.T) {
+	lrc, err := ParseLyricPayload(sampleLyricPayload(t))
 	if err != nil {
-		t.Fatalf("ParseLyric: %v", err)
+		t.Fatalf("ParseLyricPayload: %v", err)
 	}
-	if res.Lyric != "[00:01.00]a" || res.TLyric != "[00:01.00]A" {
-		t.Errorf("结果 = %+v", res)
+	for _, want := range []string{"[ti:test]", "[ar:test]", "[00:01.00]hello", "[00:02.50]world"} {
+		if !strings.Contains(lrc, want) {
+			t.Errorf("歌词缺少 %q，实际 %q", want, lrc)
+		}
 	}
-	if _, err := ParseLyric([]byte(`{"code":200,"data":{}}`)); err == nil {
-		t.Error("缺少歌词应报错")
+	if !strings.HasSuffix(lrc, "\n") {
+		t.Errorf("应以换行结尾，实际 %q", lrc)
+	}
+
+	// 上游明确说没有歌词：要能和「解析失败」区分开
+	if _, err := ParseLyricPayload([]byte("TP=none\n")); !errors.Is(err, ErrNoLyric) {
+		t.Errorf("TP=none 应返回 ErrNoLyric，实际 %v", err)
+	}
+	if _, err := ParseLyricPayload(nil); err == nil {
+		t.Error("空响应应报错")
+	}
+	if _, err := ParseLyricPayload([]byte("<html>502</html>")); err == nil {
+		t.Error("非法头部应报错")
+	}
+	if _, err := ParseLyricPayload([]byte("TP=content\r\nlrcx=1\r\n\r\n")); err == nil {
+		t.Error("载荷不足应报错")
+	}
+	// 解压后不是 Base64 / 没有时间轴，都不能当成功
+	if _, err := ParseLyricPayload([]byte("TP=content\r\nlrcx=1\r\n\r\nnot-zlib")); err == nil {
+		t.Error("非 zlib 载荷应报错")
 	}
 }
 
@@ -248,18 +287,46 @@ func TestClientUpstreamErrors(t *testing.T) {
 }
 
 func TestClientLyric(t *testing.T) {
-	d := &fakeDoer{body: `{"code":200,"data":{"lyric":"[00:01.00]a"}}`}
-	c := New(Config{BaseURL: "https://mobi.kuwo.cn", Key: testKey, PathLyric: "/lyric"}, d)
+	d := &fakeDoer{body: string(sampleLyricPayload(t))}
+	c := New(Config{BaseURL: "https://mobi.kuwo.cn", Key: testKey, LyricBaseURL: "https://mlyric.invalid"}, d)
 
-	li, err := c.Lyric(context.Background(), "123")
+	// 带 MUSIC_ 前缀的 id 要能容忍
+	li, err := c.Lyric(context.Background(), "MUSIC_123")
 	if err != nil {
 		t.Fatalf("Lyric: %v", err)
 	}
-	if li.Lyric != "[00:01.00]a" {
+	if !strings.Contains(li.Lyric, "[00:01.00]hello") {
 		t.Errorf("Lyric = %q", li.Lyric)
 	}
-	if !strings.HasSuffix(d.reqs[0].URL.Path, "/lyric") {
-		t.Errorf("歌词路径 = %q", d.reqs[0].URL.Path)
+
+	got := d.reqs[0].URL
+	if got.Host != "mlyric.invalid" || got.Path != "/mobi.s" {
+		t.Errorf("歌词地址 = %s", got)
+	}
+	q := got.Query()
+	if q.Get("rid") != "123" || q.Get("type") != "lyric" || q.Get("lrcx") != "0" || q.Get("f") != "web" {
+		t.Errorf("查询参数 = %s", got.RawQuery)
+	}
+}
+
+func TestClientLyricNoLyric(t *testing.T) {
+	c := New(Config{LyricBaseURL: "https://mlyric.invalid"}, &fakeDoer{body: "TP=none\n"})
+	_, err := c.Lyric(context.Background(), "1")
+	if err == nil {
+		t.Fatal("没有歌词应报错")
+	}
+	if e, ok := apierr.From(err); !ok || e.Code != apierr.CodeUnavailable {
+		t.Errorf("错误码应为 unavailable，实际 %v", err)
+	}
+
+	// 空 id 是参数错误，不该打上游
+	d := &fakeDoer{}
+	c = New(Config{LyricBaseURL: "https://mlyric.invalid"}, d)
+	if _, err := c.Lyric(context.Background(), "  "); err == nil {
+		t.Error("空 id 应报错")
+	}
+	if len(d.reqs) != 0 {
+		t.Errorf("空 id 不该发请求，实际 %d 次", len(d.reqs))
 	}
 }
 

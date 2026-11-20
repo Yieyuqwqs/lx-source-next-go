@@ -7,7 +7,7 @@
 
 ## 一句话现状
 
-**五个平台（酷我/酷狗/咪咕/网易云/QQ）的搜索与播放直链全部打通，四个平台有歌词**；
+**五个平台（酷我/酷狗/咪咕/网易云/QQ）的搜索、播放直链与歌词全部打通**；
 匿名即可播放各平台免费曲目，带凭据可上 VIP 音质（最高 24bit）。
 
 - 仓库：`Yieyuqwqs/lx-source-next-go`（公开），模块 `github.com/lxsrcs/lx-source-next`
@@ -21,7 +21,7 @@
 
 | 平台 | 搜索 | 歌词 | 播放直链 | 匿名天花板 | 完整音质要什么 |
 |---|---|---|---|---|---|
-| 酷我 kw | ✅ | ❌ | ✅ | 128k mp3 | —（mobi 策略需 8 字节 DES 密钥） |
+| 酷我 kw | ✅ | ✅ | ✅ | 128k mp3 | —（mobi 策略需 8 字节 DES 密钥；**歌词不需要**） |
 | 酷狗 kg | ✅ | ✅ | ✅ | 128k | 该曲有 24bit `ResFileHash` 且权限允许 |
 | 咪咕 mg | ✅ | ✅ | ✅ | PQ/HQ | 登录态（ZQ=24bit） |
 | 网易云 wy | ✅ | ✅ 翻译+逐字 | ✅ | 128k | `[Wy] Cookie`（MUSIC_U） |
@@ -31,14 +31,15 @@
 
 | 源 | 取链 | 歌词 |
 |---|---|---|
-| 酷我 | `antiserver.kuwo.cn/anti.s`（**忽略 br**，固定一份 mp3） | 未接（公开入口全失效） |
+| 酷我 | `antiserver.kuwo.cn/anti.s`（**忽略 br**，固定一份 mp3） | `mlyric.kuwo.cn/mobi.s?f=web&type=lyric&lrcx=0&rid=`（zlib + Base64 + 7 字节异或 `yeelion`） |
 | 酷狗 | `trackercdn.kugou.com/v5/url` + MD5 双重签名 + `Kg-Thash/Kg-Rec/Kg-Rc` 头 | `krcs.kugou.com/search` → `lyrics.kugou.com/download?fmt=lrc`（base64） |
 | 咪咕 | `app.pd.nf.migu.cn/MIGUM2.0/v1.0/content/sub/listenSong.do`（**302 的 Location 才是文件**） | 搜索响应里的 `lyricUrl`（纯文本） |
 | 网易云 | `music.163.com/weapi/song/enhance/player/url/v1`（AES-128-CBC×2 + RSA `encSecKey`） | `api/song/lyric` |
 | QQ | `u.y.qq.com/cgi-bin/musics.fcg?sign=<zzb>`，先 `get_song_detail_yqq` 拿 `media_mid` 再 `CgiGetVkey` | `c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg`（base64 lyric/trans） |
 
 **签名算法都在纯函数文件里，有黄金值单测**：
-`pkg/source/qq/sign.go`（zzb）、`pkg/source/kg/v5.go`（酷狗 v5）、`pkg/source/wy/weapi.go`（weapi）。
+`pkg/source/qq/sign.go`（zzb）、`pkg/source/kg/v5.go`（酷狗 v5）、`pkg/source/wy/weapi.go`（weapi）、
+`pkg/source/kw/parse.go`（歌词三段包装）。
 
 ---
 
@@ -120,6 +121,12 @@ POST /repos/:repo/git/refs  {"ref":"refs/tags/vX.Y.Z","sha":"<main head>"}
 12. **空音质表示「没有音质概念」**（歌词），策略层按可缓存处理；未知音质不缓存。
 13. 缓存键要消毒（非法 id → md5），否则文件驱动每次 `ErrInvalidKey`，既不缓存还刷日志。
 14. 网易云 `eapi` 匿名已死，`weapi` 还活着；酷狗旧 `trackercdn` 回「需付费」，**v5 带签名**才能出免费曲目的链。
+15. **文件名会骗人**：酷我歌词入口叫 `mlyric.kuwo.cn/mobi.s`，但它和取链的 mobi 策略无关、
+    不要 DES，载荷只是 zlib + Base64 + 7 字节异或（`yeelion`）。
+    之前按「8 字节 DES 密钥」找了很久——**关键词是 `type=lyric`，不是 `q=<密文>`**。
+16. **同一 id 反复请求结果不同 = CDN 节点差异，不是限流**：`m.kuwo.cn/newh5/singles/songinfoandlrc`
+    会随机回 `音乐查询失败`（同一个 id 6 次里成 2 次），加 `httpsStatus=1`、换 UA/Referer、加随机参数都不治本；
+    别拿单次失败当「接口失效」，换宿主（`mlyric`）才是解。
 
 ---
 
@@ -162,11 +169,11 @@ pkg/lrcutil/           歌词五格式解析（只被测试与 mock 用，属库
 ## 六、还没做的 / 建议顺序
 
 1. **轮换 GitHub token**：本会话用过的 PAT 已在聊天里明文出现，务必撤销（fine-grained + 7 天）。
-2. **真机按 `docs/ACCEPTANCE.md` 跑一遍**，重点：各源音质档位、30 分钟后仍能播（过期直链重取）。
-3. **酷我歌词**：需要 mobi 策略的 8 字节 DES 密钥；拿到即可补，代码结构已经支持（`kw.Lyric` 里判策略）。
-4. **封面 / MV / 音乐详情**：各平台入口都要签名或登录，属于「自带凭据」范畴。
-5. **缓存驱动扩展**：`Cache` 接口已就绪，加 Redis 实现即可多实例；限流计数同理。
-6. **账号池**：`[Wy] Cookie` / `[Tx] Uin+Ukey` 现在是单账号；多账号要加轮换（参考他人项目的 `[Srcs.Wy.Group.Node]`）。
+2. **真机按 `docs/ACCEPTANCE.md` 跑一遍**，重点：各源音质档位、30 分钟后仍能播（过期直链重取）、酷我歌词。
+3. **封面 / MV / 音乐详情**：各平台入口都要签名或登录，属于「自带凭据」范畴。
+4. **缓存驱动扩展**：`Cache` 接口已就绪，加 Redis 实现即可多实例；限流计数同理。
+5. **账号池**：`[Wy] Cookie` / `[Tx] Uin+Ukey` 现在是单账号；多账号要加轮换（参考他人项目的 `[Srcs.Wy.Group.Node]`）。
+6. **酷我逐字歌词**：`lrcx=1` 会带 `<起始,时长>` 标记，语义还没确认；确认后能补 `lxlyric`。
 7. **第三方签名服务**（`[Wy] Agg`）：默认关。要稳定就自建 Meting/签名服务，把 `AggURL` 指过去。
 
 ---

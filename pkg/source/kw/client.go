@@ -6,12 +6,15 @@
 //   - parse.go   纯函数：响应报文 → 结构体（容错多形态）
 //   - client.go  唯一做网络 IO 的地方，HTTP 执行器可注入
 //
-// 两条上游路径：
+// 两条取链路径：
 //   - anti（默认）：antiserver 的 anti.s 接口，匿名、免密钥、纯文本返回；
 //   - mobi：mobi.s 接口，需要 8 字节 DES 密钥。
 //
 // 默认走 anti，是因为它不需要任何凭据即可工作；
 // mobi 作为可选路径保留，密钥到手后改配置即可启用。
+//
+// 歌词不走上面两条：它挂在 mlyric.kuwo.cn/mobi.s 上，
+// 匿名可用、免密钥（载荷是 zlib + Base64 + 7 字节异或），与策略无关。
 package kw
 
 import (
@@ -43,6 +46,8 @@ const (
 	DefaultAntiBaseURL = "https://antiserver.kuwo.cn"
 	// DefaultMobiBaseURL 是 mobi 接口地址。
 	DefaultMobiBaseURL = "https://mobi.kuwo.cn"
+	// DefaultLyricBaseURL 是歌词接口地址（mlyric，匿名可用）。
+	DefaultLyricBaseURL = "https://mlyric.kuwo.cn"
 )
 
 // maxBody 是响应体读取上限，防止异常上游打爆内存。
@@ -74,8 +79,11 @@ type Config struct {
 	Key []byte
 	// PathConvert 取链路径，为空时按策略取默认值。
 	PathConvert string
-	// PathLyric 歌词路径，默认 /mobi.s。
-	PathLyric string
+	// LyricBaseURL 歌词接口根地址，默认 DefaultLyricBaseURL。
+	//
+	// 歌词与取链是两套宿主：mlyric 匿名可用、免密钥，
+	// 也不受 anti/mobi 策略影响。
+	LyricBaseURL string
 	// SearchHost 搜索接口地址，与取链不同域；留空用内置默认值。
 	SearchHost string
 	// UserAgent 请求头。
@@ -133,8 +141,8 @@ func New(cfg Config, doer Doer) *Client {
 	if cfg.Src == "" {
 		cfg.Src = "kw"
 	}
-	if cfg.PathLyric == "" {
-		cfg.PathLyric = "/mobi.s"
+	if cfg.LyricBaseURL == "" {
+		cfg.LyricBaseURL = DefaultLyricBaseURL
 	}
 	if cfg.AntiQuality == "" {
 		cfg.AntiQuality = DefaultAntiQuality
@@ -279,39 +287,52 @@ func (c *Client) urlMobi(ctx context.Context, id, br, canonical string) (source.
 
 // Lyric 实现 source.Source：取歌词。
 //
-// 目前只支持 mobi 策略（anti 接口不提供歌词）。
-// TODO(协议确认)：歌词接口的路径与参数名。
+// 走 mlyric 的公开接口，匿名可用、不需要密钥：
+//
+//	GET {LyricBaseURL}/mobi.s?f=web&type=lyric&lrcx=0&rid=<id>&encode=utf8
+//
+// 与取链策略无关——anti 策略下同样能取到歌词。
+// TODO(逐字)：上游另有 lrcx=1 的逐字版本（<起始,时长> 标记），
+// 现在统一按纯文本处理；要补 lxlyric 需先确认标记语义。
 func (c *Client) Lyric(ctx context.Context, id string) (source.LyricInfo, error) {
-	if err := c.ready(); err != nil {
-		return source.LyricInfo{}, err
-	}
-	if c.cfg.Strategy != StrategyMobi {
-		return source.LyricInfo{}, apierr.New(apierr.CodeUnavailable, "kw: 当前策略不提供歌词（需要 mobi 策略 + 密钥）")
-	}
-	id = strings.TrimSpace(id)
+	id = trimMusicID(id)
 	if id == "" {
 		return source.LyricInfo{}, apierr.New(apierr.CodeBadRequest, "缺少音乐 ID")
 	}
+	if strings.TrimSpace(c.cfg.LyricBaseURL) == "" {
+		return source.LyricInfo{}, apierr.New(apierr.CodeUnavailable, "kw: 未配置歌词地址")
+	}
 
 	params := url.Values{}
+	params.Set("f", "web")
 	params.Set("type", "lyric")
+	params.Set("lrcx", "0")
 	params.Set("rid", id)
-	params.Set("corp", "kuwo")
-	params.Set("user", "0")
+	params.Set("encode", "utf8")
 
-	q64, err := BuildMobiQuery(params, c.cfg.Key)
-	if err != nil {
-		return source.LyricInfo{}, apierr.Wrap(apierr.CodeInternal, "kw: 构造 q 参数失败", err)
-	}
-	body, err := c.get(ctx, c.cfg.PathLyric, url.Values{"f": {"kuwo"}, "q": {q64}})
+	body, err := c.getURL(ctx, buildURL(c.cfg.LyricBaseURL, "", params))
 	if err != nil {
 		return source.LyricInfo{}, err
 	}
-	res, err := ParseLyric(body)
+	lrc, err := ParseLyricPayload(body)
 	if err != nil {
+		if errors.Is(err, ErrNoLyric) {
+			return source.LyricInfo{}, apierr.Newf(apierr.CodeUnavailable, "kw: 曲目 %s 没有歌词", id)
+		}
 		return source.LyricInfo{}, apierr.Wrap(apierr.CodeUnavailable, "kw: 解析歌词失败", err)
 	}
-	return source.LyricInfo{Lyric: res.Lyric, TLyric: res.TLyric}, nil
+	return source.LyricInfo{Lyric: lrc}, nil
+}
+
+// trimMusicID 去掉 id 上可能带的 MUSIC_ 前缀，只留数字。
+//
+// 搜索接口给的是裸数字，但 v0 契约里 id 的来源不唯一，宽进严出。
+func trimMusicID(id string) string {
+	id = strings.TrimSpace(id)
+	if len(id) >= 6 && strings.EqualFold(id[:6], "MUSIC_") {
+		id = id[6:]
+	}
+	return strings.TrimSpace(id)
 }
 
 // errNotImplemented 表示能力尚未接入。

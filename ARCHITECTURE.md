@@ -172,7 +172,9 @@ pkg/source/mock/        确定性假来源（链路自检/冒烟用）
 ## 7. 还没做
 
 - **非匿名的音质档**：五个源的匿名天花板都是免费档，VIP/24bit 需要账号凭据（已留配置口）
-- **更多歌词**：目前只有网易云；酷狗/QQ/咪咕的歌词接口尚未接
+- **逐字歌词**：五个源都能取歌词，但只有网易云给了逐字（`klyric`）；酷我的逐字版本
+  （`lrcx=1`，`<起始,时长>` 标记）语义还没确认，暂按纯文本收
+- **翻译歌词**：网易云、QQ 有；酷狗/咪咕/酷我取到的是原文
 - **封面 / MV / 音乐详情**：各平台入口都要签名或登录
 - 缓存驱动只有本地文件（接口已就绪，Redis 实现未写）；限流计数是单机内存
 - 前端只挂了一个自检页；`Apis.ApiOnly` 用来关掉它
@@ -328,7 +330,7 @@ pkg/source/kw/
 | `mobi.s` 的 `f=kuwo&q=<密文>` 形态 | ⚠️ 同上 |
 | 取链参数 `type/br/rid/format/sig/p2p/corp/user` | ⚠️ 同上 |
 | 响应 JSON 形状 | ⚠️ 已做容错解析，覆盖 4 种已知形态 |
-| 歌词接口路径与参数 | ❌ 未确认，路径可配置 |
+| 歌词接口路径与参数 | ✅ 已确认：`mlyric.kuwo.cn/mobi.s?f=web&type=lyric&lrcx=0&rid=<id>&encode=utf8`（见 13.1） |
 | 视频 / 封面 / 音乐详情 | ❌ 未实现，返回明确错误而非瞎猜 |
 
 **所有不确定项都不硬编码在代码里**：密钥、路径、有效期都是 `Config` 字段，
@@ -383,7 +385,8 @@ flac24bit → .../nf/resource/n1/69/32/588957081.mp3
 |---|---|---|
 | 取播放直链 | `antiserver.kuwo.cn/anti.s` | ✅ 可用，**免密钥** |
 | 搜索 | `search.kuwo.cn/r.s` | ✅ 可用，返回真实 ID/歌名/歌手/时长/格式 |
-| 歌词 | `m.kuwo.cn/newh5/singles/songinfoandlrc` | ❌ `音乐查询失败`，加 UA/Referer 无效 |
+| 歌词 | `mlyric.kuwo.cn/mobi.s?f=web&type=lyric` | ✅ 可用，**免密钥**（zlib + Base64 + 7 字节异或，见 13.1） |
+| 歌词（H5 接口） | `m.kuwo.cn/newh5/singles/songinfoandlrc` | ⚠️ 间歇可用：同一个 id 反复请求会随机回 `音乐查询失败`（CDN 节点差异），不适合做主力 |
 | 歌词（老接口） | `newlyric.kuwo.cn/newlyric.lrc` | ❌ `TP=ERROR REQUEST`，接口已废 |
 | 网页版 API | `www.kuwo.cn/api/www/...` | ❌ `The request is illegal!`（需 csrf/cookie） |
 | mobi 免密钥伪装 | `mobi.kuwo.cn/mobi.s?f=web` | ❌ 403 |
@@ -391,8 +394,8 @@ flac24bit → .../nf/resource/n1/69/32/588957081.mp3
 | MV | anti.s `format=mp4` | ❌ `res not found` |
 | 封面 | `artistpicserver` | ❌ 403 |
 
-**结论：酷我的匿名天花板 = 搜索 + mp3 取链。**
-歌词、封面、MV、音乐详情都需要凭据，启用 `mobi` 策略 + DES 密钥才可能突破。
+**结论：酷我的匿名天花板 = 搜索 + mp3 取链 + 歌词。**
+封面、MV、音乐详情需要凭据，启用 `mobi` 策略 + DES 密钥才可能突破。
 
 ### 两个只有真实数据才能发现的 bug
 
@@ -428,9 +431,16 @@ flac24bit → .../nf/resource/n1/69/32/588957081.mp3
 | 酷狗 | `krcs.kugou.com/search` → `lyrics.kugou.com/download?fmt=lrc` | 先拿 `id+accesskey`，再取 base64 的 LRC |
 | QQ | `c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg?songmid=` | JSON，`lyric`/`trans` 都是 base64 |
 | 咪咕 | 搜索响应里的 `lyricUrl` | 直接是纯文本 LRC |
+| 酷我 | `mlyric.kuwo.cn/mobi.s?f=web&type=lyric&lrcx=0&rid=` | 三段式：`TP=content\r\nlrcx=1\r\n\r\n` + zlib(Base64(明文 XOR `yeelion`))；`TP=none` 表示没有歌词 |
 
 歌词接口不依赖取链签名，也不需要登录态——所以歌词的可用范围比「完整音质」宽。
-酷我是例外：公开歌词入口（`m.kuwo.cn`、`newlyric.kuwo.cn`、`www.kuwo.cn/api`）全部失效或要 csrf。
+酷我一开始看着是例外（`m.kuwo.cn`、`newlyric.kuwo.cn`、`www.kuwo.cn/api` 全部失效或要 csrf），
+真正能用的是 `mlyric` 这个**独立歌词宿主**：匿名、免密钥，只有 7 字节异或这一层包装。
+文件名里带 `mobi.s` 容易让人以为要走 DES，其实和取链的 mobi 策略完全是两套东西。
+
+抽样验证（10 组关键词 × 每组前 2 个搜索结果 = 20 个 id，同一套解析）：
+**15 个有歌词、5 个上游明确 `TP=none`、0 个解析失败**。
+这个入口是确定性的——没有歌词就是真没有，不会回半截乱码；反过来也别把 `TP=none` 当接口坏了。
 
 ### 13.2 每档音质是不同 hash（酷狗 / QQ）
 

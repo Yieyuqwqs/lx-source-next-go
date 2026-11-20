@@ -120,29 +120,31 @@ func TestWithHTTPTestServerUpstreamBreakage(t *testing.T) {
 }
 
 // TestWithHTTPTestServerLyric 同样闭合歌词链路。
+//
+// 真机抓的响应是二进制（zlib 段），所以这里直接回样本字节，
+// 而不是拼字符串——顺带验证 io 层没有按文本处理响应体。
 func TestWithHTTPTestServerLyric(t *testing.T) {
+	payload := sampleLyricPayload(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		plain, err := DesDecrypt(r.URL.Query().Get("q"), testKey)
-		if err != nil {
-			http.Error(w, "q 解密失败", http.StatusBadRequest)
+		if r.URL.Path != "/mobi.s" {
+			http.Error(w, "路径不对: "+r.URL.Path, http.StatusNotFound)
 			return
 		}
-		v, _ := url.ParseQuery(string(plain))
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"code":200,"data":{"lyric":"[00:01.00]歌曲 %s","tlyric":"[00:01.00]song %s"}}`, v.Get("rid"), v.Get("rid"))
+		if got := r.URL.Query().Get("rid"); got != "789" {
+			http.Error(w, "rid 不对: "+got, http.StatusBadRequest)
+			return
+		}
+		w.Write(payload)
 	}))
 	defer srv.Close()
 
-	c := New(Config{BaseURL: srv.URL, Key: testKey, PathLyric: "/mobi.s"}, nil)
+	c := New(Config{LyricBaseURL: srv.URL}, nil)
 	li, err := c.Lyric(context.Background(), "789")
 	if err != nil {
 		t.Fatalf("Lyric: %v", err)
 	}
-	if !strings.Contains(li.Lyric, "789") {
+	if !strings.Contains(li.Lyric, "[00:02.50]world") {
 		t.Errorf("lyric = %q", li.Lyric)
-	}
-	if li.TLyric == "" {
-		t.Error("应带回翻译歌词")
 	}
 }
 
@@ -212,9 +214,18 @@ func TestAntDefaults(t *testing.T) {
 	}
 }
 
-func TestAntiStrategyNoLyric(t *testing.T) {
-	c := New(Config{Strategy: StrategyAnti}, &fakeDoer{})
-	if _, err := c.Lyric(context.Background(), "1"); err == nil {
-		t.Error("anti 策略不提供歌词，应报错")
+// TestLyricAnyStrategy 歌词与取链策略解耦：anti 下同样能取到歌词。
+func TestLyricAnyStrategy(t *testing.T) {
+	for _, st := range []string{StrategyAnti, StrategyMobi} {
+		d := &fakeDoer{body: string(sampleLyricPayload(t))}
+		c := New(Config{Strategy: st, LyricBaseURL: "https://mlyric.invalid"}, d)
+		li, err := c.Lyric(context.Background(), "1")
+		if err != nil {
+			t.Errorf("%s 策略取歌词失败: %v", st, err)
+			continue
+		}
+		if !strings.Contains(li.Lyric, "[00:01.00]hello") {
+			t.Errorf("%s 策略歌词 = %q", st, li.Lyric)
+		}
 	}
 }
