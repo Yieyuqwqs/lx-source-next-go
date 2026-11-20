@@ -418,7 +418,7 @@ flac24bit → .../nf/resource/n1/69/32/588957081.mp3
 | 源 | 通道 | 关键点 | 匿名结果 |
 |---|---|---|---|
 | 酷我 | `antiserver.kuwo.cn/anti.s` | 纯文本返回裸链接，**忽略 `br`** | 128k mp3 |
-| 酷狗 | `trackercdn.kugou.com/v5/url` | `key = md5(hash+"57ae…1005-0")`；`signature = md5("OIlwieks…" + 排序k=v + "OIlwieks…")`；必须带 `Kg-Thash/Kg-Rec/Kg-Rc` 头 | 128k（免费曲目） |
+| 酷狗 | `trackercdn.kugou.com/v5/url` | `key = md5(hash+"57ae…1005-0")`；`signature = md5("OIlwieks…" + 排序k=v + "OIlwieks…")`；必须带 `Kg-Thash/Kg-Rec/Kg-Rc` 头 | **2026-11-21 起风控**：`status=2「本次请求需要验证」`，热门曲目 `priv_status=0/fail_process=[pkg,buy]`（要买） |
 | 咪咕 | `app.pd.nf.migu.cn/MIGUM2.0/.../listenSong.do` | 302 的 `Location` 即真实文件；`toneFlag` = PQ/HQ/SQ/ZQ | PQ/HQ |
 | 网易云 | `music.163.com/weapi/song/enhance/player/url/v1` | AES-128-CBC 两层 + RSA `encSecKey`；需要 `appver` Cookie | 128k（免费曲目） |
 | QQ | `u.y.qq.com/cgi-bin/musics.fcg` | `sign` = zzb 算法（MD5 → 固定下标抽取 → 掩码异或 → 自定义 base64）；先取 `media_mid` 再取 vkey | 免费曲目 128k；付费曲目**试听片段** |

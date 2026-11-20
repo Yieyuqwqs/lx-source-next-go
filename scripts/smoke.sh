@@ -145,7 +145,7 @@ curl -sS "$BASE/api/v0/lx-script.js?key=smoke-key" | grep -E "API_KEY" | head -2
 line
 printf '### 酷狗 kg（公开接口，真实网络）\n'
 show "kg 搜索" "$BASE/api/v1/search?pt=kg&q=%E5%91%A8%E6%9D%B0%E4%BC%A6&sz=2"
-show "kg 取链（用实测拿到的 hash）" "$BASE/api/v0/url/kg/1f7e7659b9fff4fb6f71562a61bbc25f/128k"
+show "kg 取链（上游 2026-11-21 起风控，503 属预期）" "$BASE/api/v0/url/kg/1f7e7659b9fff4fb6f71562a61bbc25f/128k"
 show "kg 歌词（krcs → lyrics 两步）" "$BASE/api/v0/lrc/kg/1f7e7659b9fff4fb6f71562a61bbc25f"
 
 line

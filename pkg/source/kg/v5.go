@@ -10,12 +10,17 @@ package kg
 //
 // 实测：免费曲目的 128k 返回 status=1 且能下载；高音质是否可用取决于曲目权限，
 // 因此上层按 flac24bit → flac → 320k → 128k 逐档回退，并如实上报最终拿到的档位。
+//
+// 注意：2026-11-21 起匿名请求开始被要求人工验证（status=2「本次请求需要验证」），
+// 四个档位会一起失败。这类失败是**请求级**的，重试别的档位没有意义，
+// 所以 v5URLFor 会立刻返回，不再空跑三趟。
 
 import (
 	"context"
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -144,7 +149,22 @@ type v5Response struct {
 	Status int             `json:"status"`
 	URL    json.RawMessage `json:"url"`
 	ErrMsg string          `json:"error"`
+	// PrivStatus / FailProcess 是新版报文表达「要不要买」的字段：
+	// priv_status=0 + fail_process=[pkg,buy] 就是「该曲目需要购买或会员」。
+	PrivStatus  *int     `json:"priv_status"`
+	FailProcess []string `json:"fail_process"`
 }
+
+// ErrVerifyRequired 表示上游要求人工验证（status=2「本次请求需要验证」）。
+//
+// 这是**请求级**的门槛：换档位、换 hash 都没用，重试只会白跑三趟，
+// 所以要立刻向上冒，让上层直接报「该源当前取不到链接」。
+var ErrVerifyRequired = errors.New("kg: 上游要求人工验证，匿名取链暂不可用")
+
+// ErrNeedsPurchase 表示该曲目在酷狗需要购买或会员（priv_status=0）。
+//
+// 同样是请求级的：四个档位一起没戏，别白跑。
+var ErrNeedsPurchase = errors.New("kg: 该曲目需要购买或开通会员")
 
 // parseV5URL 从响应里取地址：url 既可能是字符串，也可能是数组（取最末一个）。
 func parseV5URL(body []byte) (string, int, error) {
@@ -153,7 +173,19 @@ func parseV5URL(body []byte) (string, int, error) {
 		return "", 0, fmt.Errorf("kg: v5 响应不是 JSON: %w", err)
 	}
 	if resp.Status != 1 {
-		msg := resp.ErrMsg
+		msg := strings.TrimSpace(resp.ErrMsg)
+		switch {
+		// status=2 既可以表示「需要验证」，也可以表示「无权限」，
+		// 所以先看文案；只有文案缺失时才按 status=2 保守判定成验证门槛。
+		case strings.Contains(msg, "验证") || (resp.Status == 2 && msg == ""):
+			if msg == "" {
+				msg = "本次请求需要验证"
+			}
+			return "", resp.Status, fmt.Errorf("%w（status=%d, %s）", ErrVerifyRequired, resp.Status, msg)
+		case resp.PrivStatus != nil && *resp.PrivStatus == 0:
+			return "", resp.Status, fmt.Errorf("%w（priv_status=0, fail_process=%s）",
+				ErrNeedsPurchase, strings.Join(resp.FailProcess, ","))
+		}
 		if msg == "" {
 			msg = "权限不足或曲目无该音质"
 		}
@@ -168,13 +200,22 @@ func parseV5URL(body []byte) (string, int, error) {
 		if err := json.Unmarshal(resp.URL, &list); err != nil || len(list) == 0 {
 			return "", resp.Status, fmt.Errorf("kg: v5 url 数组解析失败")
 		}
-		return list[len(list)-1], resp.Status, nil
+		link := strings.TrimSpace(list[len(list)-1])
+		if link == "" {
+			return "", resp.Status, fmt.Errorf("kg: v5 url 数组里没有可用地址（status=%d）", resp.Status)
+		}
+		return link, resp.Status, nil
 	}
 	var single string
 	if err := json.Unmarshal(resp.URL, &single); err != nil {
 		return "", resp.Status, fmt.Errorf("kg: v5 url 字段解析失败: %w", err)
 	}
-	return single, resp.Status, nil
+	// `"url":""` 的解码结果是空串（raw 非空、也不是 null），这里必须再挡一次：
+	// 否则会带着「成功」把空链接交给上层，播放器拿到 200 却放不出任何东西。
+	if link := strings.TrimSpace(single); link != "" {
+		return link, resp.Status, nil
+	}
+	return "", resp.Status, fmt.Errorf("kg: v5 返回了空 url（status=%d）", resp.Status)
 }
 
 // urlV5 请求一条直链；失败时返回错误（调用方决定是否降档重试）。
@@ -237,6 +278,16 @@ func (c *Client) v5URLFor(ctx context.Context, table map[string]string, fallback
 		link, err := c.urlV5(ctx, hash, vq)
 		if err != nil {
 			lastErr = err
+			if errors.Is(err, ErrVerifyRequired) {
+				// 请求级门槛：再试别的档位也没有意义
+				return source.LinkInfo{}, apierr.Wrap(apierr.CodeUnavailable,
+					"kg: 上游要求人工验证，匿名取链暂不可用（歌词不受影响）", err)
+			}
+			if errors.Is(err, ErrNeedsPurchase) {
+				// 会员曲目：四个档位一起没戏，别白跑三趟
+				return source.LinkInfo{}, apierr.Wrap(apierr.CodeUnavailable,
+					"kg: 该曲目需要购买或开通会员（匿名只出免费曲目）", err)
+			}
 			continue
 		}
 		return source.LinkInfo{

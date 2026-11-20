@@ -1,6 +1,8 @@
 package kg
 
 import (
+	"context"
+	"errors"
 	"net/url"
 	"strings"
 	"testing"
@@ -66,5 +68,58 @@ func TestParseV5URL(t *testing.T) {
 		t.Error("status 非 1 时必须报错")
 	} else if !strings.Contains(err.Error(), "no privilege") {
 		t.Errorf("错误应带上游原因: %v", err)
+	}
+}
+
+// TestV5VerifyRequired 上游要人工验证时要能识别成「请求级」失败。
+//
+// 2026-11-21 实测：匿名请求开始回 status=2 +「本次请求需要验证」，
+// 这时换档位重试没有意义，必须立刻上冒。
+func TestV5VerifyRequired(t *testing.T) {
+	for _, body := range []string{
+		`{"status":2,"error":"本次请求需要验证"}`,
+		`{"status":2}`,
+	} {
+		_, _, err := parseV5URL([]byte(body))
+		if !errors.Is(err, ErrVerifyRequired) {
+			t.Errorf("%s 应判定为 ErrVerifyRequired，实际 %v", body, err)
+		}
+	}
+
+	// 普通的「无权限」不能被误判成验证门槛，否则会放弃降档
+	if _, _, err := parseV5URL([]byte(`{"status":2,"error":"no privilege"}`)); errors.Is(err, ErrVerifyRequired) {
+		t.Error("无权限不应判定为验证门槛")
+	}
+	if _, _, err := parseV5URL([]byte(`{"status":1,"url":""}`)); err == nil {
+		t.Error("status=1 但没有 url 应报错")
+	}
+}
+
+// TestParseV5NeedsPurchase 新版报文用 priv_status/fail_process 表达「要买」。
+func TestParseV5NeedsPurchase(t *testing.T) {
+	body := `{"priv_status":0,"auth_through":[],"fail_process":["pkg","buy"],"url":""}`
+	_, _, err := parseV5URL([]byte(body))
+	if !errors.Is(err, ErrNeedsPurchase) {
+		t.Fatalf("应判定 ErrNeedsPurchase，实际 %v", err)
+	}
+	if !strings.Contains(err.Error(), "pkg,buy") {
+		t.Errorf("错误里应带上 fail_process: %v", err)
+	}
+}
+
+// TestURLVerifyRequiredStopsFallback 一次验证失败就打住，别空跑四趟。
+func TestURLVerifyRequiredStopsFallback(t *testing.T) {
+	d := &fakeDoer{body: `{"status":2,"error":"本次请求需要验证"}`}
+	c := New(Config{}, d)
+
+	_, err := c.URL(context.Background(), "B3A52A7A958BF0AED0EBFBA2E9A818B7", "flac24bit")
+	if err == nil {
+		t.Fatal("应报错")
+	}
+	if !strings.Contains(err.Error(), "人工验证") {
+		t.Errorf("错误信息应说明要人工验证: %v", err)
+	}
+	if len(d.reqs) != 1 {
+		t.Errorf("应只请求一次，实际 %d 次", len(d.reqs))
 	}
 }
