@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/base64"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -17,6 +18,41 @@ import (
 	"github.com/lxsrcs/lx-source-next/pkg/source"
 	"github.com/lxsrcs/lx-source-next/pkg/source/kw"
 )
+
+// kwLyricPayloadB64 与 pkg/source/kw 单测用的是同一份歌词响应样本。
+//
+// 明文："[ti:test]\n[ar:test]\n[00:01.00]hello\n[00:02.50]world\n"
+const kwLyricPayloadB64 = "VFA9Y29udGVudA0KbHJjeD0xDQoNCnic88xw9Q3LMPD2CDQwSapK9vQIC/RzdIqM9HMPNQwOC0uLcMtwisjONnEJzHZzLHerCsgJSw41tEwOM3QK8w0ycfRwCnVKKre1BQA8lBaa"
+
+// newKwLyricUpstream 起一个假的 mlyric 上游；noLyric 时回 TP=none。
+//
+// 存在的意义是让 pkg/server 的用例永远不碰真网络。
+func newKwLyricUpstream(t *testing.T, calls *atomic.Int64, noLyric bool) string {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		if r.URL.Path != "/mobi.s" {
+			http.Error(w, "路径不对: "+r.URL.Path, http.StatusNotFound)
+			return
+		}
+		if r.URL.Query().Get("type") != "lyric" {
+			http.Error(w, "type 不对", http.StatusBadRequest)
+			return
+		}
+		if noLyric {
+			fmt.Fprint(w, "TP=none\n")
+			return
+		}
+		payload, err := base64.StdEncoding.DecodeString(kwLyricPayloadB64)
+		if err != nil {
+			http.Error(w, "样本损坏", http.StatusInternalServerError)
+			return
+		}
+		w.Write(payload)
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
 
 const kwChainTOML = `
 [Data]
@@ -50,6 +86,8 @@ func newKwMobiApp(t *testing.T, calls *atomic.Int64) (*App, *cache.File) {
 	t.Cleanup(upstream.Close)
 
 	cfg := kw.Config{Strategy: kw.StrategyMobi, BaseURL: upstream.URL, Key: kwTestKey}
+	// 歌词另有宿主，用例里也指到本地假上游，避免测试依赖真网络
+	cfg.LyricBaseURL = newKwLyricUpstream(t, new(atomic.Int64), false)
 	return buildKwApp(t, cfg, calls)
 }
 
@@ -70,6 +108,7 @@ func newKwAntiApp(t *testing.T, calls *atomic.Int64) (*App, *cache.File) {
 	t.Cleanup(upstream.Close)
 
 	cfg := kw.Config{Strategy: kw.StrategyAnti, BaseURL: upstream.URL}
+	cfg.LyricBaseURL = newKwLyricUpstream(t, new(atomic.Int64), false)
 	return buildKwApp(t, cfg, calls)
 }
 
@@ -218,14 +257,45 @@ func TestKwBadStrategyChain(t *testing.T) {
 	}
 }
 
-// TestKwAntiNoLyricChain 验证 anti 策略下歌词返回 503 而不是乱猜。
-func TestKwAntiNoLyricChain(t *testing.T) {
+// TestKwLyricChain 串起「路由 → 缓存 → kw Source → mlyric 解析」。
+//
+// 歌词与取链策略解耦：anti 策略下也能拿到，所以这里就用 anti 装配。
+func TestKwLyricChain(t *testing.T) {
 	var calls atomic.Int64
-	app, _ := newKwAntiApp(t, &calls)
+	lyricURL := newKwLyricUpstream(t, &calls, false)
+	app, _ := buildKwApp(t, kw.Config{Strategy: kw.StrategyAnti, LyricBaseURL: lyricURL}, new(atomic.Int64))
+
+	rec := get(t, app, "/api/v0/lrc/kw/228908")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("状态码 = %d，响应 %s", rec.Code, rec.Body.String())
+	}
+	data, _ := decode(t, rec)["data"].(map[string]any)
+	lyric, _ := data["lyric"].(string)
+	if !strings.Contains(lyric, "[00:01.00]hello") {
+		t.Errorf("lyric = %q", lyric)
+	}
+	if calls.Load() != 1 {
+		t.Errorf("上游调用 %d 次，want 1", calls.Load())
+	}
+
+	// 第二次应当命中缓存，不再打上游
+	if rec := get(t, app, "/api/v0/lrc/kw/228908"); rec.Code != http.StatusOK {
+		t.Fatalf("第二次状态码 = %d", rec.Code)
+	}
+	if calls.Load() != 1 {
+		t.Errorf("第二次应命中缓存，上游调用 %d 次", calls.Load())
+	}
+}
+
+// TestKwLyricNoLyricChain 上游明确「没有歌词」时返回 503，而不是空歌词 200。
+func TestKwLyricNoLyricChain(t *testing.T) {
+	var calls atomic.Int64
+	lyricURL := newKwLyricUpstream(t, &calls, true)
+	app, _ := buildKwApp(t, kw.Config{Strategy: kw.StrategyAnti, LyricBaseURL: lyricURL}, new(atomic.Int64))
 
 	rec := get(t, app, "/api/v0/lrc/kw/228908")
 	if rec.Code != http.StatusServiceUnavailable {
-		t.Errorf("anti 策略不提供歌词，应 503，实际 %d", rec.Code)
+		t.Errorf("没有歌词应 503，实际 %d", rec.Code)
 	}
 }
 
