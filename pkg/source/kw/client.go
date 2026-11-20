@@ -48,6 +48,8 @@ const (
 	DefaultMobiBaseURL = "https://mobi.kuwo.cn"
 	// DefaultLyricBaseURL 是歌词接口地址（mlyric，匿名可用）。
 	DefaultLyricBaseURL = "https://mlyric.kuwo.cn"
+	// lyricPath 是歌词接口路径，拼在 LyricBaseURL 后面。
+	lyricPath = "/mobi.s"
 )
 
 // maxBody 是响应体读取上限，防止异常上游打爆内存。
@@ -310,7 +312,7 @@ func (c *Client) Lyric(ctx context.Context, id string) (source.LyricInfo, error)
 	params.Set("rid", id)
 	params.Set("encode", "utf8")
 
-	body, err := c.getURL(ctx, buildURL(c.cfg.LyricBaseURL, "", params))
+	body, err := c.getURL(ctx, buildURL(c.cfg.LyricBaseURL, lyricPath, params))
 	if err != nil {
 		return source.LyricInfo{}, err
 	}
