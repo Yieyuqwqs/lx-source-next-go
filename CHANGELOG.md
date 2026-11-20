@@ -19,6 +19,9 @@
 - 上游明确「没有歌词」时返回 `TP=none`，新增 `ErrNoLyric` 与解析失败区分开（都映射 503，但不留假成功的缓存）
 - 删除此前按猜测写的 `ParseLyric`（JSON 形态）与 `Config.PathLyric`，换成 `Config.LyricBaseURL`
 - 歌词 id 容忍 `MUSIC_` 前缀；空 id 不发请求直接回参数错误
+- 服务端链路用例改成注入假的 mlyric 上游：原先那条「anti 不提供歌词，应 503」的断言已经过期，
+  而且它会**真的联网**（1.23 秒才返回就是证据）；现在是 `TestKwLyricChain`（解析 + 命中缓存）与
+  `TestKwLyricNoLyricChain`（`TP=none` → 503）
 
 ## v0.1.8 — 补齐歌词：酷狗 / QQ / 咪咕
 
