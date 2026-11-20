@@ -179,8 +179,14 @@ pkg/lrcutil/           歌词五格式解析（只被测试与 mock 用，属库
 | 模糊 | `go test ./pkg/lrcutil -fuzz FuzzParseLrcx` | 否 |
 | 端到端 | `.github/workflows/smoke.yml` → `scripts/smoke.sh` | 是（真起服务 + 真 curl） |
 | 发布 | tag `v*` 触发 `release.yml` | — |
+| 单曲体检 | `bash scripts/diag.sh <pt> <id> <qual>` | 手动；分不清「取链挂」还是「CDN 挂」时用 |
 
 **真机验收**：`docs/ACCEPTANCE.md`（8 节 23 项，含失败排查表与回归红线）。
+
+**播放器报「换源失败」怎么查**：先跑 `scripts/diag.sh`。
+它会打印接口的 `code/msg/qual/link`，再用 `Range: bytes=0-1023` 真拉一次直链，
+看状态码、`Content-Type`、前 4 字节是不是 mp3。接口 200 但直链下不动 = CDN 的事；
+接口 4xx/5xx = 取链的事。**别忘了先 `rm -rf data/cache`**——旧版本可能缓存过「假成功」的链接。
 
 ---
 

@@ -109,9 +109,15 @@ curl -s 'http://127.0.0.1:1101/api/v1/status' | grep -o '"hits":[0-9]*'
 | 取链 `code:2` | `msg` 里的根因 | 免费档没了 / 该曲需要会员 / 上游限流 |
 | 歌词对不上 | 请求的 id 是否来自同一源 | 跨源混用 id（每个源 id 语义不同） |
 | 播放 10 秒断 | 直链是否带 `expi` | 上游把直链有效期调短了；缓存会在过期后自动重取 |
+| 「换源失败」但接口回了 200 | `bash scripts/diag.sh <pt> <id> <qual>` | 直链下不动（CDN 过期/风控）、或 id 不是该源的 |
 | 内存涨 | `cache` 命中率 | 缓存目录写不进去（只看日志 `缓存回填失败`） |
 
 日志里全部带源前缀（`kw:` `kg:` `mg:` `wy:` `qq:`），直接 `grep` 前缀就能定位。
+
+**单曲体检**：`bash scripts/diag.sh kg 1f7e7659b9fff4fb6f71562a61bbc25f flac24bit`
+会依次打印「接口回了什么（code/msg/qual/link）」「直链能否用 Range 下到 1KB（状态码、Content-Type、
+前 4 字节是不是 mp3）」「歌词」。分不清是取链挂了还是 CDN 挂了时先跑它。
+升级后如果之前有「假成功」的旧链接，记得 `rm -rf data/cache` 再测。
 
 ---
 
